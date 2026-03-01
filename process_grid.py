@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Step 4: Build the Analysis Grid
+HeatSense — Step 4: Build the Analysis Grid
 ====================================================
 This is the BACKBONE of the project. It takes every data source we've
 collected (thermal, NDVI, buildings, parks, water, roads, impervious surface)
@@ -647,7 +647,7 @@ def visualize_heat_risk_map(grid, config, output_path="output/chicago_heat_risk.
 
 def main():
     print("=" * 60)
-    print("  TomorrowLand Heat — Analysis Grid Builder")
+    print("  HeatSense — Analysis Grid Builder")
     print("=" * 60)
     print()
 

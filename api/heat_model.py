@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Model Service
+HeatSense — Model Service
 ==================================
 Loads the trained model and grid data, provides prediction,
 intervention simulation, and heat map image generation.

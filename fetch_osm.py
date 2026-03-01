@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Step 3: Fetch OpenStreetMap Urban Data
+HeatSense — Step 3: Fetch OpenStreetMap Urban Data
 ==========================================================
 v4 — ALL data fetched via quadrant-based direct Overpass queries.
 No OSMnx dependency for data fetching (only used for road graph if available).
@@ -607,7 +607,7 @@ def main():
     overall_start = time.time()
 
     print("=" * 60)
-    print("  TomorrowLand Heat — OpenStreetMap Urban Data Pipeline")
+    print("  HeatSense — OpenStreetMap Urban Data Pipeline")
     print("  v4 — All quadrant-based Overpass fetching")
     print("=" * 60)
     print()

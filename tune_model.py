@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Model Tuning & Optimization
+HeatSense — Model Tuning & Optimization
 ================================================
 This script addresses the issues found in the initial model:
 
@@ -761,7 +761,7 @@ def save_tuned_model(model, features, metrics, feature_results, intervention_res
 def main():
     print()
     print("=" * 60)
-    print("  TomorrowLand Heat — Model Tuning & Optimization")
+    print("  HeatSense — Model Tuning & Optimization")
     print("=" * 60)
 
     # Step 1: Better data prep

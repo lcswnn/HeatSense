@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Phase 2: Train Heat Prediction Model
+HeatSense — Phase 2: Train Heat Prediction Model
 =========================================================
 This script trains a gradient boosting model (LightGBM or XGBoost) to predict
 land surface temperature from urban features like vegetation, impervious surface,
@@ -399,7 +399,7 @@ def get_feature_importance(model, features, X_test, y_test):
 
 def demo_intervention_simulation(model, X_test, y_test, features):
     """
-    Demonstrate the intervention simulator — the Tomorrowland feature.
+    Demonstrate the intervention simulator — the HeatSense feature.
     Shows what happens when you increase NDVI (simulate planting trees).
     """
     print("\n" + "=" * 50)
@@ -692,7 +692,7 @@ def save_model(model, features, metrics, intervention_results):
 def main():
     print()
     print("=" * 60)
-    print("  TomorrowLand Heat — ML Model Training")
+    print("  HeatSense — ML Model Training")
     print("=" * 60)
     print()
 

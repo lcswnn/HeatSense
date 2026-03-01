@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Step 2: Fetch NDVI Vegetation Data
+HeatSense — Step 2: Fetch NDVI Vegetation Data
 ======================================================
 This script pulls Sentinel-2 imagery from Google Earth Engine and computes
 NDVI (Normalized Difference Vegetation Index) for Chicago.
@@ -404,7 +404,7 @@ def create_interactive_map(mean_ndvi, mean_lst_f, imperv, study_area, config):
 
 def main():
     print("=" * 60)
-    print("  TomorrowLand Heat — NDVI Vegetation Pipeline")
+    print("  HeatSense — NDVI Vegetation Pipeline")
     print("=" * 60)
     print()
 

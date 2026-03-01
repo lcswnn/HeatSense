@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — FastAPI Backend
+HeatSense — FastAPI Backend
 ====================================
 Serves heat model predictions, grid data, and heat map images.
 
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from heat_model import HeatModel
 
 app = FastAPI(
-    title="TomorrowLand Heat API",
+    title="HeatSense API",
     description="Urban heat island prediction and intervention simulation for Chicago",
     version="1.0.0",
 )
@@ -44,7 +44,7 @@ heatmap_cache = {}
 @app.on_event("startup")
 def load_model():
     global model
-    print("\n  Loading TomorrowLand Heat model...")
+    print("\n  Loading HeatSense model...")
     start = time.time()
 
     api_dir = os.path.dirname(os.path.abspath(__file__))

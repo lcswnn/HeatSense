@@ -1,5 +1,5 @@
 """
-TomorrowLand Heat — Step 1: Fetch Landsat Thermal Data
+HeatSense — Step 1: Fetch Landsat Thermal Data
 ======================================================
 This script pulls Landsat 8/9 thermal infrared data from Google Earth Engine
 for Chicago and computes Land Surface Temperature (LST).
@@ -342,7 +342,7 @@ def create_interactive_map(mean_lst_f, study_area, config):
 
 def main():
     print("=" * 60)
-    print("  TomorrowLand Heat — Landsat Thermal Data Pipeline")
+    print("  HeatSense — Landsat Thermal Data Pipeline")
     print("=" * 60)
     print()
 

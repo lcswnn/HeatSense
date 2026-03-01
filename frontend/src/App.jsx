@@ -157,7 +157,7 @@ export default function App() {
     return (
       <div className="loading-overlay">
         <div className="spinner" />
-        <h1>TomorrowLand Heat</h1>
+        <h1>HeatSense</h1>
         <p>Loading Chicago urban heat data...</p>
       </div>
     )
@@ -192,7 +192,7 @@ export default function App() {
       {/* Top bar */}
       <div className="top-bar">
         <div className="logo">
-          <h1>TomorrowLand Heat</h1>
+          <h1>HeatSense</h1>
           <span>Urban Heat Island Mapper — Chicago</span>
         </div>
         <div className="mode-tabs">
