@@ -1,0 +1,76 @@
+# Chicago Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+
+city:
+  name: "Chicago"
+  state: "IL"
+  display_name: "Chicago, Illinois"
+
+# Bounding box for the study area (Chicago city limits + small buffer)
+bbox:
+  west: -87.9401
+  south: 41.6445
+  east: -87.5241
+  north: 42.0230
+
+# Center point (for map default view)
+center:
+  latitude: 41.8781
+  longitude: -87.6298
+  zoom: 11
+
+# Grid parameters
+grid:
+  cell_size_meters: 100  # 100m x 100m grid cells
+  crs: "EPSG:32616"       # UTM Zone 16N (appropriate for Chicago)
+
+# Landsat parameters
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"  # Landsat 9 Collection 2, Level 2
+  # Summer months for heat analysis (June-August)
+  start_month: 6
+  end_month: 8
+  # Years to pull data for
+  years: [2022, 2023, 2024, 2025]
+  # Maximum cloud cover percentage to accept
+  max_cloud_cover: 20
+
+# Sentinel-2 NDVI parameters
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 6
+  end_month: 8
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 20
+
+# Heat risk thresholds (in Fahrenheit)
+thresholds:
+  moderate: 90    # Surface temp where risk begins
+  high: 100       # High risk
+  extreme: 110    # Extreme / dangerous
+
+# Weather station for ambient air temperature baseline
+weather:
+  nws_station: "KORD"  # O'Hare International Airport
+  nws_grid_office: "LOT"  # NWS Chicago office
+  nws_grid_x: 75
+  nws_grid_y: 73
+
+# Neighborhoods of interest (for detailed analysis / reporting)
+focus_neighborhoods:
+  - name: "Pilsen"
+    center: [41.8523, -87.6567]
+  - name: "Englewood"
+    center: [41.7800, -87.6456]
+  - name: "Austin"
+    center: [41.8953, -87.7657]
+  - name: "Back of the Yards"
+    center: [41.8100, -87.6567]
+  - name: "Lincoln Park"
+    center: [41.9214, -87.6513]
+  - name: "Hyde Park"
+    center: [41.7943, -87.5907]
+  - name: "Logan Square"
+    center: [41.9234, -87.7083]
+  - name: "Wicker Park"
+    center: [41.9088, -87.6796]
