@@ -77,13 +77,13 @@ FEATURE_COLUMNS = [
     "lat",               # Latitude (captures north-south gradient + lake effect)
     "lon",               # Longitude (captures east-west / lake proximity)
     # These will be included when OSM data is available:
-    # "building_count",
-    # "building_density",
-    # "avg_building_height_m",
-    # "road_density_km",
-    # "distance_to_park_m",
-    # "distance_to_water_m",
-    # "park_area_pct",
+    "building_count",
+    "building_density",
+    "avg_building_height_m",
+    "road_density_km",
+    "distance_to_park_m",
+    "distance_to_water_m",
+    "park_area_pct",
 ]
 
 TARGET_COLUMN = "mean_lst_f"  # Land Surface Temperature in Fahrenheit
