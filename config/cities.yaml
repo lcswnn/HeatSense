@@ -1,0 +1,104 @@
+# TomorrowLand Heat — City Registry
+# All configured cities for multi-city deployment
+#
+# STATUS KEY:
+#   active    = data pipeline complete, model trained, serving in production
+#   ready     = config created, ready to run pipeline
+#   planned   = on the roadmap, config not yet created
+#
+# To add a new city:
+#   1. Create config/{slug}.yaml (copy from an existing city)
+#   2. Set the bounding box, center, CRS, weather station, neighborhoods
+#   3. Run: python data-pipeline/run_city.py --city {slug}
+#   4. Run: python model/train_heat_model.py --city {slug}
+#   5. Add entry below with status: active
+
+cities:
+  - slug: "chicago"
+    name: "Chicago Metro, Illinois"
+    status: "active"
+    cells: 142784
+    notes: "Original pilot city. Includes western suburbs through Naperville."
+    climate: "humid continental"
+    key_story: "15°F gap between Lincoln Park and Back of the Yards"
+
+  - slug: "phoenix"
+    name: "Phoenix Metro, Arizona"
+    status: "ready"
+    cells: null
+    notes: "Hottest major US city. Surface temps can exceed 160°F."
+    climate: "hot desert"
+    key_story: "100+ heat deaths per year, massive equity gap"
+
+  - slug: "houston"
+    name: "Houston Metro, Texas"
+    status: "ready"
+    cells: null
+    notes: "Humid heat creates dangerous wet-bulb temps."
+    climate: "humid subtropical"
+    key_story: "Petrochemical corridor adjacent to residential neighborhoods"
+
+  - slug: "los-angeles"
+    name: "Los Angeles, California"
+    status: "ready"
+    cells: null
+    notes: "20-30°F gradient from coast to inland valleys."
+    climate: "Mediterranean / semi-arid"
+    key_story: "Wealthy westside has trees + ocean breeze; South LA bakes"
+
+  - slug: "atlanta"
+    name: "Atlanta, Georgia"
+    status: "ready"
+    cells: null
+    notes: "City in a Forest losing canopy to development."
+    climate: "humid subtropical"
+    key_story: "Buckhead vs South Atlanta is one of the starkest heat equity gaps"
+
+  - slug: "miami"
+    name: "Miami-Dade, Florida"
+    status: "ready"
+    cells: null
+    notes: "Compound climate risk: heat + humidity + flooding + sea level rise."
+    climate: "tropical monsoon"
+    key_story: "Blocks from the ocean can be 10-15°F cooler than inland Hialeah"
+
+  - slug: "nyc"
+    name: "New York City, New York"
+    status: "ready"
+    cells: null
+    notes: "Most studied UHI in the world. Canyon effects from density."
+    climate: "humid subtropical"
+    key_story: "Central Park vs South Bronx = 10°F+ gap mapped onto race/income"
+
+  - slug: "dallas"
+    name: "Dallas, Texas"
+    status: "ready"
+    cells: null
+    notes: "Fast-growing, massive sprawl converting prairie to concrete."
+    climate: "humid subtropical"
+    key_story: "North vs South Dallas wealth/heat divide"
+
+# ============================================================
+# PLANNED CITIES (high priority for future expansion)
+# ============================================================
+#
+# Tier 1 — Worst heat islands + active policy interest:
+#   - Las Vegas, NV (desert sprawl, fastest-warming US city)
+#   - San Antonio, TX (fast growing, large low-income population)
+#   - Detroit, MI (Rust Belt, lots of vacant land = intervention opportunity)
+#   - St. Louis, MO (extreme heat events, stark racial divide)
+#   - Washington DC (federal interest, compact city, good for demos)
+#
+# Tier 2 — Important for coverage:
+#   - Denver, CO (high altitude heat, rapid growth)
+#   - Minneapolis, MN (climate change making heat a new problem)
+#   - Baltimore, MD (dense, aging infrastructure, vulnerable population)
+#   - New Orleans, LA (compound heat + flood risk)
+#   - Sacramento, CA (Central Valley extreme heat)
+#
+# Tier 3 — Small/medium cities (shows tool works at any scale):
+#   - Tucson, AZ
+#   - Richmond, VA
+#   - Raleigh, NC
+#   - Columbus, OH
+#   - Memphis, TN

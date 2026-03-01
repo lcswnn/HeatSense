@@ -1,0 +1,78 @@
+# Los Angeles Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY LA: Dramatic temperature gradient from cool coast to scorching inland
+# valleys (20-30°F difference in same metro). Heat deaths increasing rapidly.
+# Stark environmental justice: wealthy westside has trees + ocean breeze,
+# while South LA and the San Fernando Valley bake. California has aggressive
+# urban canopy goals — this tool supports that advocacy.
+
+city:
+  name: "Los Angeles"
+  state: "CA"
+  display_name: "Los Angeles, California"
+  slug: "los-angeles"
+
+# Covers LA basin from Santa Monica to Pasadena/Glendale
+# Excludes San Fernando Valley to keep manageable (could add later)
+bbox:
+  west: -118.5200
+  south: 33.8800
+  east: -118.1000
+  north: 34.1700
+
+center:
+  latitude: 34.0522
+  longitude: -118.2437
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32611"  # UTM Zone 11N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 6
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 15   # Marine layer burns off, mostly clear
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 6
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 15
+
+thresholds:
+  moderate: 95
+  high: 105
+  extreme: 115
+
+weather:
+  nws_station: "KLAX"
+  nws_grid_office: "LOX"
+  nws_grid_x: 149
+  nws_grid_y: 48
+
+focus_neighborhoods:
+  - name: "Downtown LA"
+    center: [34.0407, -118.2468]
+  - name: "South LA"
+    center: [33.9425, -118.2551]
+  - name: "Watts"
+    center: [33.9386, -118.2426]
+  - name: "Boyle Heights"
+    center: [34.0338, -118.2100]
+  - name: "East LA"
+    center: [34.0239, -118.1720]
+  - name: "Santa Monica"
+    center: [34.0195, -118.4912]
+  - name: "Beverly Hills"
+    center: [34.0736, -118.4004]
+  - name: "Koreatown"
+    center: [34.0580, -118.3005]
+  - name: "Pasadena"
+    center: [34.1478, -118.1445]
+  - name: "Inglewood"
+    center: [33.9617, -118.3531]

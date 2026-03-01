@@ -1,0 +1,77 @@
+# Phoenix Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY PHOENIX: Hottest major US city. 100+ heat deaths/year. Massive concrete
+# sprawl with surface temps reaching 160°F+. The contrast between irrigated
+# neighborhoods and bare desert/asphalt is dramatic. Phoenix has active city
+# programs for tree equity — this tool directly supports their mission.
+
+city:
+  name: "Phoenix"
+  state: "AZ"
+  display_name: "Phoenix Metro, Arizona"
+  slug: "phoenix"
+
+# Covers Phoenix, Tempe, Scottsdale, Mesa, Chandler, Glendale
+bbox:
+  west: -112.3300
+  south: 33.2900
+  east: -111.7800
+  north: 33.7200
+
+center:
+  latitude: 33.4484
+  longitude: -112.0740
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32612"  # UTM Zone 12N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 5        # Phoenix heat starts in May
+  end_month: 9          # Extends through September
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 10   # Desert = very few clouds
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 10
+
+# Phoenix runs MUCH hotter — thresholds adjusted
+thresholds:
+  moderate: 105
+  high: 115
+  extreme: 125
+
+weather:
+  nws_station: "KPHX"
+  nws_grid_office: "PSR"
+  nws_grid_x: 159
+  nws_grid_y: 59
+
+focus_neighborhoods:
+  - name: "Downtown Phoenix"
+    center: [33.4484, -112.0740]
+  - name: "South Phoenix"
+    center: [33.3900, -112.0700]
+  - name: "Maryvale"
+    center: [33.5020, -112.1780]
+  - name: "Tempe"
+    center: [33.4255, -111.9400]
+  - name: "Scottsdale"
+    center: [33.4942, -111.9261]
+  - name: "Mesa"
+    center: [33.4152, -111.8315]
+  - name: "Chandler"
+    center: [33.3062, -111.8413]
+  - name: "Glendale"
+    center: [33.5387, -112.1860]
+  - name: "Arcadia"
+    center: [33.5050, -111.9580]
+  - name: "Ahwatukee"
+    center: [33.3400, -111.9800]

@@ -1,38 +1,37 @@
-# Chicago Metro Area Configuration
-# HeatSense - City Parameters
+# Chicago Metro Area Configuration (Expanded)
+# TomorrowLand Heat - City Parameters
+# Includes western suburbs through Naperville/Aurora
 
 city:
   name: "Chicago"
   state: "IL"
-  display_name: "Chicago, Illinois"
+  display_name: "Chicago Metro, Illinois"
+  slug: "chicago"
 
-# Bounding box for the study area (Chicago city limits + small buffer)
+# Bounding box — expanded west to -88.30 to cover Naperville/Aurora
 bbox:
-  west: -87.9401
+  west: -88.30     # Expanded from -87.9401 to capture Naperville/Aurora
   south: 41.6445
   east: -87.5241
   north: 42.0230
 
-# Center point (for map default view)
+# Center point (shifted slightly west for wider bbox)
 center:
-  latitude: 41.8781
-  longitude: -87.6298
-  zoom: 11
+  latitude: 41.85
+  longitude: -87.90
+  zoom: 10
 
 # Grid parameters
 grid:
-  cell_size_meters: 100  # 100m x 100m grid cells
-  crs: "EPSG:32616"       # UTM Zone 16N (appropriate for Chicago)
+  cell_size_meters: 100
+  crs: "EPSG:32616"  # UTM Zone 16N
 
 # Landsat parameters
 landsat:
-  collection: "LANDSAT/LC09/C02/T1_L2"  # Landsat 9 Collection 2, Level 2
-  # Summer months for heat analysis (June-August)
+  collection: "LANDSAT/LC09/C02/T1_L2"
   start_month: 6
   end_month: 8
-  # Years to pull data for
   years: [2022, 2023, 2024, 2025]
-  # Maximum cloud cover percentage to accept
   max_cloud_cover: 20
 
 # Sentinel-2 NDVI parameters
@@ -45,19 +44,20 @@ sentinel2:
 
 # Heat risk thresholds (in Fahrenheit)
 thresholds:
-  moderate: 90    # Surface temp where risk begins
-  high: 100       # High risk
-  extreme: 110    # Extreme / dangerous
+  moderate: 90
+  high: 100
+  extreme: 110
 
-# Weather station for ambient air temperature baseline
+# Weather stations
 weather:
-  nws_station: "KORD"  # O'Hare International Airport
-  nws_grid_office: "LOT"  # NWS Chicago office
+  nws_station: "KORD"
+  nws_grid_office: "LOT"
   nws_grid_x: 75
   nws_grid_y: 73
 
-# Neighborhoods of interest (for detailed analysis / reporting)
+# Neighborhoods / areas of interest
 focus_neighborhoods:
+  # Chicago proper
   - name: "Pilsen"
     center: [41.8523, -87.6567]
   - name: "Englewood"
@@ -74,3 +74,24 @@ focus_neighborhoods:
     center: [41.9234, -87.7083]
   - name: "Wicker Park"
     center: [41.9088, -87.6796]
+  - name: "Loop"
+    center: [41.8819, -87.6278]
+  - name: "Bronzeville"
+    center: [41.8231, -87.6170]
+  # Western suburbs
+  - name: "Naperville"
+    center: [41.7508, -88.1535]
+  - name: "Aurora"
+    center: [41.7606, -88.3201]
+  - name: "Wheaton"
+    center: [41.8661, -88.1070]
+  - name: "Downers Grove"
+    center: [41.8089, -88.0112]
+  - name: "Oak Park"
+    center: [41.8850, -87.7845]
+  - name: "Cicero"
+    center: [41.8456, -87.7539]
+  - name: "Berwyn"
+    center: [41.8506, -87.7936]
+  - name: "La Grange"
+    center: [41.8050, -87.8690]

@@ -1,0 +1,77 @@
+# Atlanta Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY ATLANTA: "City in a Forest" is rapidly losing tree canopy to development.
+# Lost 50%+ of canopy in some neighborhoods. Strong north-south wealth divide
+# maps directly onto heat exposure. Atlanta has one of the most studied urban
+# heat islands in the US — great for model validation. The contrast between
+# Buckhead (wealthy, forested) and South Atlanta (industrial, treeless) is
+# one of the most dramatic heat equity gaps in the country.
+
+city:
+  name: "Atlanta"
+  state: "GA"
+  display_name: "Atlanta, Georgia"
+  slug: "atlanta"
+
+bbox:
+  west: -84.5500
+  south: 33.6500
+  east: -84.2800
+  north: 33.8900
+
+center:
+  latitude: 33.7490
+  longitude: -84.3880
+  zoom: 12
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32616"  # UTM Zone 16N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 6
+  end_month: 8
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 25
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 6
+  end_month: 8
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 25
+
+thresholds:
+  moderate: 92
+  high: 102
+  extreme: 112
+
+weather:
+  nws_station: "KATL"
+  nws_grid_office: "FFC"
+  nws_grid_x: 50
+  nws_grid_y: 86
+
+focus_neighborhoods:
+  - name: "Downtown Atlanta"
+    center: [33.7490, -84.3880]
+  - name: "Buckhead"
+    center: [33.8384, -84.3791]
+  - name: "Midtown"
+    center: [33.7867, -84.3830]
+  - name: "West End"
+    center: [33.7360, -84.4120]
+  - name: "East Atlanta"
+    center: [33.7400, -84.3430]
+  - name: "Vine City"
+    center: [33.7580, -84.4150]
+  - name: "Grant Park"
+    center: [33.7375, -84.3700]
+  - name: "Decatur"
+    center: [33.7748, -84.2963]
+  - name: "College Park"
+    center: [33.6534, -84.4494]
+  - name: "Sandy Springs"
+    center: [33.9304, -84.3733]

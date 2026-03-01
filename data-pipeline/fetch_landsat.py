@@ -1,5 +1,5 @@
 """
-HeatSense — Step 1: Fetch Landsat Thermal Data
+TomorrowLand Heat — Step 1: Fetch Landsat Thermal Data
 ======================================================
 This script pulls Landsat 8/9 thermal infrared data from Google Earth Engine
 for Chicago and computes Land Surface Temperature (LST).
@@ -29,8 +29,29 @@ import matplotlib.colors as mcolors
 # CONFIGURATION
 # ============================================================
 
-def load_config(config_path="config/chicago.yaml"):
-    """Load city configuration."""
+def load_config(config_path=None, city_slug=None):
+    """Load city configuration. Accepts either a path or a city slug."""
+    if config_path is None and city_slug is not None:
+        # Find config relative to this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(script_dir)
+        config_path = os.path.join(project_dir, "config", f"{city_slug}.yaml")
+    elif config_path is None:
+        config_path = "config/chicago.yaml"
+    
+    if not os.path.exists(config_path):
+        print(f"  Error: Config not found at {config_path}")
+        # List available configs
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(script_dir)
+        config_dir = os.path.join(project_dir, "config")
+        if os.path.isdir(config_dir):
+            print(f"  Available cities:")
+            for f in sorted(os.listdir(config_dir)):
+                if f.endswith(".yaml") and f != "cities.yaml":
+                    print(f"    - {f.replace('.yaml', '')}")
+        raise SystemExit(1)
+    
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
@@ -156,7 +177,7 @@ def fetch_landsat_collection(config, study_area):
                  .map(kelvin_to_celsius))
 
     count = processed.size().getInfo()
-    print(f"✓ Found {count} cloud-free Landsat scenes for Chicago summers")
+    print(f"✓ Found {count} cloud-free Landsat scenes")
 
     return processed
 
@@ -341,16 +362,58 @@ def create_interactive_map(mean_lst_f, study_area, config):
 # ============================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="HeatSense — Fetch Landsat Thermal Data")
+    parser.add_argument("--city", type=str, default="chicago",
+                        help="City slug matching a config file (e.g. chicago, phoenix, dallas)")
+    parser.add_argument("--config", type=str, default=None,
+                        help="Direct path to a city config YAML file")
+    parser.add_argument("--west", type=float, default=None)
+    parser.add_argument("--south", type=float, default=None)
+    parser.add_argument("--east", type=float, default=None)
+    parser.add_argument("--north", type=float, default=None)
+    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--start-month", type=int, default=None)
+    parser.add_argument("--end-month", type=int, default=None)
+    parser.add_argument("--max-cloud", type=int, default=None)
+    args = parser.parse_args()
+
     print("=" * 60)
     print("  HeatSense — Landsat Thermal Data Pipeline")
     print("=" * 60)
     print()
 
-    # Load config
-    config = load_config()
+    # Load config — prefer --config path, then --city slug
+    if args.config:
+        config = load_config(config_path=args.config)
+    else:
+        config = load_config(city_slug=args.city)
+
+    # Allow CLI overrides for bbox and landsat params
+    if args.west is not None:
+        config["bbox"]["west"] = args.west
+    if args.south is not None:
+        config["bbox"]["south"] = args.south
+    if args.east is not None:
+        config["bbox"]["east"] = args.east
+    if args.north is not None:
+        config["bbox"]["north"] = args.north
+    if args.start_month is not None:
+        config["landsat"]["start_month"] = args.start_month
+    if args.end_month is not None:
+        config["landsat"]["end_month"] = args.end_month
+    if args.max_cloud is not None:
+        config["landsat"]["max_cloud_cover"] = args.max_cloud
+
+    city_slug = config.get("city", {}).get("slug", args.city)
+
     print(f"📍 City: {config['city']['display_name']}")
     print(f"📅 Years: {config['landsat']['years']}")
-    print(f"☀️  Months: June - August (summer)")
+    start_m = config['landsat']['start_month']
+    end_m = config['landsat']['end_month']
+    month_names = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+                   7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+    print(f"☀️  Months: {month_names.get(start_m, start_m)} - {month_names.get(end_m, end_m)}")
     print()
 
     # Initialize Earth Engine
@@ -371,32 +434,36 @@ def main():
     print("✓ Mean LST computed")
     print()
 
-    # ---- Choose your output method ----
-    # Option A: Download and visualize locally (good for small areas / quick look)
+    # Determine output paths
+    output_dir = args.output or f"data/{city_slug}/landsat/"
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs("output", exist_ok=True)
+
+    # Download and visualize
     print("Downloading data for visualization...")
     try:
         data, bounds = download_as_numpy(mean_lst_f, study_area, scale=100)
-        visualize_lst(data, bounds, config)
+        viz_path = f"output/{city_slug}_heat_map.png"
+        visualize_lst(data, bounds, config, output_path=viz_path)
     except Exception as e:
         print(f"  ⚠ Local download failed ({e})")
         print(f"  Falling back to Google Drive export...")
-        export_to_drive(mean_lst_f, "chicago_mean_summer_lst_fahrenheit", study_area)
-        export_to_drive(mean_lst_c, "chicago_mean_summer_lst_celsius", study_area)
+        export_to_drive(mean_lst_f, f"{city_slug}_mean_summer_lst_fahrenheit", study_area)
+        export_to_drive(mean_lst_c, f"{city_slug}_mean_summer_lst_celsius", study_area)
 
-    # Option B: Create interactive web map (always works, uses EE tiles)
+    # Create interactive map
     print()
     print("Creating interactive map...")
     create_interactive_map(mean_lst_f, study_area, config)
 
     print()
     print("=" * 60)
-    print("  🎉 Done! Your first heat island visualization is ready.")
+    print(f"  🎉 Done! Heat island visualization ready for {config['city']['display_name']}.")
     print()
     print("  Next steps:")
-    print("  1. Open output/chicago_interactive_map.html in your browser")
-    print("  2. Explore the heat patterns — notice how parks are cool")
-    print("     and industrial/commercial areas are hot")
-    print("  3. Run fetch_ndvi.py to add vegetation data")
+    print(f"  1. Open output/{city_slug}_interactive_map.html in your browser")
+    print("  2. Explore the heat patterns")
+    print(f"  3. Run fetch_ndvi.py --city {city_slug} to add vegetation data")
     print("=" * 60)
 
 

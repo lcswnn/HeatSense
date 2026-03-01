@@ -1,0 +1,77 @@
+# Dallas-Fort Worth Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY DFW: One of the fastest-growing US metros. Massive sprawl converting
+# prairie to concrete at an alarming rate. Extreme summer heat (105°F+ days
+# common). Strong contrast between wealthy north Dallas (tree-lined suburbs)
+# and south Dallas (industrial, treeless). Good comparison case with Houston
+# (dry heat vs humid heat in same state).
+
+city:
+  name: "Dallas"
+  state: "TX"
+  display_name: "Dallas, Texas"
+  slug: "dallas"
+
+# Dallas core + inner suburbs
+bbox:
+  west: -97.0000
+  south: 32.6200
+  east: -96.5500
+  north: 32.9800
+
+center:
+  latitude: 32.7767
+  longitude: -96.7970
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32614"  # UTM Zone 14N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 20
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 20
+
+thresholds:
+  moderate: 100
+  high: 110
+  extreme: 120
+
+weather:
+  nws_station: "KDFW"
+  nws_grid_office: "FWD"
+  nws_grid_x: 81
+  nws_grid_y: 108
+
+focus_neighborhoods:
+  - name: "Downtown Dallas"
+    center: [32.7767, -96.7970]
+  - name: "South Dallas"
+    center: [32.7350, -96.7700]
+  - name: "Oak Cliff"
+    center: [32.7350, -96.8300]
+  - name: "Deep Ellum"
+    center: [32.7846, -96.7817]
+  - name: "Highland Park"
+    center: [32.8335, -96.7958]
+  - name: "North Dallas"
+    center: [32.8800, -96.7700]
+  - name: "Irving"
+    center: [32.8140, -96.9489]
+  - name: "Garland"
+    center: [32.9126, -96.6389]
+  - name: "Mesquite"
+    center: [32.7668, -96.5992]
+  - name: "Richardson"
+    center: [32.9483, -96.7299]

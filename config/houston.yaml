@@ -1,0 +1,76 @@
+# Houston Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY HOUSTON: 4th largest US city. Humid subtropical heat creates dangerous
+# wet-bulb temps. Massive sprawl with minimal zoning = chaotic land use patterns.
+# Bayou system creates interesting cool corridors. Environmental justice issues
+# are stark — petrochemical facilities adjacent to residential neighborhoods.
+
+city:
+  name: "Houston"
+  state: "TX"
+  display_name: "Houston Metro, Texas"
+  slug: "houston"
+
+# Covers Houston core + inner suburbs
+bbox:
+  west: -95.7500
+  south: 29.5500
+  east: -95.1000
+  north: 30.0500
+
+center:
+  latitude: 29.7604
+  longitude: -95.3698
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32615"  # UTM Zone 15N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 30   # Gulf humidity = more clouds
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 30
+
+thresholds:
+  moderate: 95
+  high: 105
+  extreme: 115
+
+weather:
+  nws_station: "KIAH"
+  nws_grid_office: "HGX"
+  nws_grid_x: 65
+  nws_grid_y: 97
+
+focus_neighborhoods:
+  - name: "Downtown Houston"
+    center: [29.7604, -95.3698]
+  - name: "Third Ward"
+    center: [29.7230, -95.3540]
+  - name: "Fifth Ward"
+    center: [29.7750, -95.3350]
+  - name: "Montrose"
+    center: [29.7460, -95.3920]
+  - name: "The Heights"
+    center: [29.7920, -95.3980]
+  - name: "Midtown"
+    center: [29.7380, -95.3750]
+  - name: "Memorial Park area"
+    center: [29.7650, -95.4400]
+  - name: "Galena Park"
+    center: [29.7350, -95.2300]
+  - name: "Pasadena"
+    center: [29.6911, -95.2091]
+  - name: "Sugar Land"
+    center: [29.6197, -95.6349]

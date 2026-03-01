@@ -1,0 +1,77 @@
+# New York City Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY NYC: Most studied urban heat island in the world. Extreme density creates
+# canyon effects (buildings trap heat between them). Central Park vs. South Bronx
+# is a 10°F+ gap that maps directly onto race and income. NYC has ambitious
+# tree planting and cool roof programs — this tool can measure their impact.
+# Also the most recognizable city for demonstrations.
+
+city:
+  name: "New York City"
+  state: "NY"
+  display_name: "New York City, New York"
+  slug: "nyc"
+
+# All 5 boroughs
+bbox:
+  west: -74.2600
+  south: 40.4900
+  east: -73.7000
+  north: 40.9200
+
+center:
+  latitude: 40.7128
+  longitude: -74.0060
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32618"  # UTM Zone 18N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 6
+  end_month: 8
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 25
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 6
+  end_month: 8
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 25
+
+thresholds:
+  moderate: 90
+  high: 100
+  extreme: 110
+
+weather:
+  nws_station: "KNYC"
+  nws_grid_office: "OKX"
+  nws_grid_x: 33
+  nws_grid_y: 37
+
+focus_neighborhoods:
+  - name: "South Bronx"
+    center: [40.8176, -73.9209]
+  - name: "East Harlem"
+    center: [40.7957, -73.9389]
+  - name: "Williamsburg"
+    center: [40.7081, -73.9571]
+  - name: "Bed-Stuy"
+    center: [40.6872, -73.9418]
+  - name: "Midtown Manhattan"
+    center: [40.7549, -73.9840]
+  - name: "Central Park"
+    center: [40.7812, -73.9665]
+  - name: "Upper West Side"
+    center: [40.7870, -73.9754]
+  - name: "Jamaica (Queens)"
+    center: [40.7028, -73.7890]
+  - name: "Brownsville"
+    center: [40.6594, -73.9146]
+  - name: "Staten Island (North)"
+    center: [40.6434, -74.0766]

@@ -1,0 +1,78 @@
+# Miami Metro Area Configuration
+# TomorrowLand Heat - City Parameters
+#
+# WHY MIAMI: Unique combination of extreme humidity + urban heat = dangerous
+# wet-bulb temperatures. Sea-level city facing compound climate risks (heat +
+# flooding + sea level rise). Large vulnerable population (elderly retirees,
+# outdoor workers, low-income communities). The Biscayne Bay/ocean creates
+# a strong coastal cooling gradient — neighborhoods just blocks from the
+# water can be 10-15°F cooler than inland areas like Hialeah.
+
+city:
+  name: "Miami"
+  state: "FL"
+  display_name: "Miami-Dade, Florida"
+  slug: "miami"
+
+# Covers Miami, Miami Beach, Hialeah, Coral Gables, Homestead
+bbox:
+  west: -80.4500
+  south: 25.6500
+  east: -80.1000
+  north: 25.9500
+
+center:
+  latitude: 25.7617
+  longitude: -80.1918
+  zoom: 11
+
+grid:
+  cell_size_meters: 100
+  crs: "EPSG:32617"  # UTM Zone 17N
+
+landsat:
+  collection: "LANDSAT/LC09/C02/T1_L2"
+  start_month: 5
+  end_month: 9          # Long hot season
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 35   # Tropical = lots of clouds
+
+sentinel2:
+  collection: "COPERNICUS/S2_SR_HARMONIZED"
+  start_month: 5
+  end_month: 9
+  years: [2022, 2023, 2024, 2025]
+  max_cloud_cover: 35
+
+thresholds:
+  moderate: 92
+  high: 100
+  extreme: 110
+
+weather:
+  nws_station: "KMIA"
+  nws_grid_office: "MFL"
+  nws_grid_x: 76
+  nws_grid_y: 50
+
+focus_neighborhoods:
+  - name: "Downtown Miami"
+    center: [25.7751, -80.1947]
+  - name: "Little Havana"
+    center: [25.7654, -80.2281]
+  - name: "Little Haiti"
+    center: [25.8328, -80.1925]
+  - name: "Overtown"
+    center: [25.7850, -80.2050]
+  - name: "Coconut Grove"
+    center: [25.7260, -80.2410]
+  - name: "Miami Beach"
+    center: [25.7907, -80.1300]
+  - name: "Hialeah"
+    center: [25.8576, -80.2781]
+  - name: "Coral Gables"
+    center: [25.7215, -80.2684]
+  - name: "Wynwood"
+    center: [25.8008, -80.1998]
+  - name: "Homestead"
+    center: [25.4687, -80.4776]
