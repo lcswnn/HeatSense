@@ -8,7 +8,7 @@ const INTERVENTION_LABELS = {
   heavy: { name: 'Green Corridor', emoji: '🌲', desc: 'Parks, green roofs, urban forest' },
 }
 
-export default function SimulatePanel({ selectedCell }) {
+export default function SimulatePanel({ selectedCell, onSimulationResult }) {
   const [interventionType, setInterventionType] = useState('moderate')
   const [radius, setRadius] = useState(500)
   const [result, setResult] = useState(null)
@@ -19,6 +19,7 @@ export default function SimulatePanel({ selectedCell }) {
 
     setSimulating(true)
     try {
+      // Run the simulation for stats
       const res = await fetch(`${API_BASE}/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -33,12 +34,33 @@ export default function SimulatePanel({ selectedCell }) {
       if (res.ok) {
         const data = await res.json()
         setResult(data)
+
+        // Get the simulation overlay image + bounds for the map
+        const boundsRes = await fetch(
+          `${API_BASE}/simulate/overlay/bounds?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}`
+        )
+        if (boundsRes.ok) {
+          const bounds = await boundsRes.json()
+          const overlayUrl = `${API_BASE}/simulate/overlay?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}`
+
+          // Pass overlay info up to App to render on map
+          onSimulationResult?.({
+            imageUrl: overlayUrl,
+            bounds: bounds,
+            stats: data,
+          })
+        }
       }
     } catch (err) {
       console.error('Simulation error:', err)
     }
     setSimulating(false)
-  }, [selectedCell, interventionType, radius])
+  }, [selectedCell, interventionType, radius, onSimulationResult])
+
+  const clearSimulation = useCallback(() => {
+    setResult(null)
+    onSimulationResult?.(null)
+  }, [onSimulationResult])
 
   return (
     <div className="side-panel">
@@ -71,7 +93,7 @@ export default function SimulatePanel({ selectedCell }) {
             {Object.entries(INTERVENTION_LABELS).map(([key, { name, emoji, desc }]) => (
               <button
                 key={key}
-                onClick={() => setInterventionType(key)}
+                onClick={() => { setInterventionType(key); clearSimulation(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', borderRadius: 8, border: 'none',
@@ -109,11 +131,9 @@ export default function SimulatePanel({ selectedCell }) {
               <input
                 type="range"
                 className="sim-slider"
-                min={200}
-                max={2000}
-                step={100}
+                min={200} max={2000} step={100}
                 value={radius}
-                onChange={(e) => setRadius(Number(e.target.value))}
+                onChange={(e) => { setRadius(Number(e.target.value)); clearSimulation(); }}
               />
               <div className="bar-label">
                 <span>200m (2 blocks)</span>
@@ -173,8 +193,24 @@ export default function SimulatePanel({ selectedCell }) {
                 </div>
               </div>
 
+              <p style={{ fontSize: 11, color: '#2ecc71', marginTop: 12 }}>
+                ✓ Simulation overlay shown on map — the affected area now displays post-intervention temperatures.
+              </p>
+
+              <button
+                onClick={clearSimulation}
+                style={{
+                  width: '100%', padding: '8px 0', marginTop: 8,
+                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+                  background: 'transparent', color: '#888', fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Clear Simulation
+              </button>
+
               <div style={{
-                marginTop: 16, padding: 12,
+                marginTop: 12, padding: 12,
                 background: 'rgba(255,255,255,0.03)',
                 borderRadius: 8, fontSize: 12, color: '#666', lineHeight: 1.5
               }}>

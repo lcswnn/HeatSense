@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { MapContainer, TileLayer, ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
+import React, { useState, useEffect, useCallback } from 'react'
+import { MapContainer, TileLayer, ImageOverlay, CircleMarker, Popup, Circle, useMap, useMapEvents } from 'react-leaflet'
 import SidePanel from './components/SidePanel'
 import SimulatePanel from './components/SimulatePanel'
 import ComparePanel from './components/ComparePanel'
+import PrioritiesPanel from './components/PrioritiesPanel'
 
 const API_BASE = '/api'
 const CHICAGO_CENTER = [41.85, -87.72]
@@ -15,6 +16,17 @@ function MapClickHandler({ onMapClick }) {
   useMapEvents({
     click: (e) => onMapClick(e.latlng.lat, e.latlng.lng),
   })
+  return null
+}
+
+// Fly to a location
+function FlyTo({ center, zoom }) {
+  const map = useMap()
+  useEffect(() => {
+    if (center) {
+      map.flyTo(center, zoom || 14, { duration: 0.8 })
+    }
+  }, [center, zoom, map])
   return null
 }
 
@@ -100,21 +112,27 @@ export default function App() {
   const [error, setError] = useState(null)
   const [opacity, setOpacity] = useState(0.78)
 
-  // Heat map image URLs and bounds per layer
+  // Heat map images
   const [heatmapUrls, setHeatmapUrls] = useState({})
   const [heatmapBounds, setHeatmapBounds] = useState({})
 
+  // Simulation overlay
+  const [simOverlay, setSimOverlay] = useState(null)
+
+  // Priority zone markers
+  const [priorityZones, setPriorityZones] = useState([])
+  const [flyTarget, setFlyTarget] = useState(null)
+
+  // ---- Load initial data ----
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true)
 
-        // Load city stats
         const statsRes = await fetch(`${API_BASE}/stats`)
         if (!statsRes.ok) throw new Error('Failed to load city stats')
         setCityStats(await statsRes.json())
 
-        // Load heat map bounds and image URLs for each layer
         const layers = ['temperature', 'risk', 'ndvi']
         const boundsMap = {}
         const urlsMap = {}
@@ -123,7 +141,6 @@ export default function App() {
           const boundsRes = await fetch(`${API_BASE}/heatmap/${l}/bounds`)
           if (boundsRes.ok) {
             boundsMap[l] = await boundsRes.json()
-            // The image URL — browser will fetch this as a regular image
             urlsMap[l] = `${API_BASE}/heatmap/${l}.png`
           }
         }
@@ -140,24 +157,65 @@ export default function App() {
     loadData()
   }, [])
 
+  // ---- Load priorities when entering priorities mode ----
+  useEffect(() => {
+    if (mode === 'priorities') {
+      fetch(`${API_BASE}/priorities?min_temp_f=100&top_n=15`)
+        .then(res => res.json())
+        .then(data => setPriorityZones(data))
+        .catch(err => console.error('Priorities error:', err))
+    } else {
+      setPriorityZones([])
+    }
+  }, [mode])
+
+  // ---- Handlers ----
   const handleMapClick = useCallback(async (lat, lon) => {
     try {
       const res = await fetch(`${API_BASE}/cell?lat=${lat}&lon=${lon}`)
       if (res.ok) {
         const detail = await res.json()
         setSelectedCell(detail)
-        if (mode !== 'simulate') setMode('explore')
+        if (mode !== 'simulate' && mode !== 'priorities') setMode('explore')
       }
     } catch (err) {
       console.error('Cell detail error:', err)
     }
   }, [mode])
 
+  const handleSimulationResult = useCallback((result) => {
+    if (!result) {
+      setSimOverlay(null)
+      return
+    }
+    setSimOverlay({
+      imageUrl: result.imageUrl,
+      bounds: [[result.bounds.south, result.bounds.west], [result.bounds.north, result.bounds.east]],
+    })
+  }, [])
+
+  const handleSelectZone = useCallback((zone) => {
+    setFlyTarget([zone.lat, zone.lon])
+    // Also select that cell for detail
+    fetch(`${API_BASE}/cell?lat=${zone.lat}&lon=${zone.lon}`)
+      .then(res => res.json())
+      .then(detail => setSelectedCell(detail))
+      .catch(() => {})
+  }, [])
+
+  // Clear simulation overlay when leaving simulate mode
+  useEffect(() => {
+    if (mode !== 'simulate') {
+      setSimOverlay(null)
+    }
+  }, [mode])
+
+  // ---- Render ----
   if (loading) {
     return (
       <div className="loading-overlay">
         <div className="spinner" />
-        <h1>HeatSense</h1>
+        <h1>TomorrowLand Heat</h1>
         <p>Loading Chicago urban heat data...</p>
       </div>
     )
@@ -174,13 +232,12 @@ export default function App() {
           background: 'rgba(255,255,255,0.05)', borderRadius: 6,
           color: '#ccc', fontSize: 13
         }}>
-          cd api && pip install pillow && uvicorn main:app --reload --port 8000
+          cd api && uvicorn main:app --reload --port 8000
         </code>
       </div>
     )
   }
 
-  // Current layer bounds for the image overlay
   const bounds = heatmapBounds[layer]
   const imageUrl = heatmapUrls[layer]
   const leafletBounds = bounds
@@ -192,17 +249,22 @@ export default function App() {
       {/* Top bar */}
       <div className="top-bar">
         <div className="logo">
-          <h1>HeatSense</h1>
+          <h1>TomorrowLand Heat</h1>
           <span>Urban Heat Island Mapper — Chicago</span>
         </div>
         <div className="mode-tabs">
-          {['explore', 'compare', 'simulate'].map(m => (
+          {[
+            { key: 'explore', label: '🔍 Explore' },
+            { key: 'compare', label: '⚖️ Compare' },
+            { key: 'simulate', label: '🌳 Simulate' },
+            { key: 'priorities', label: '🎯 Priorities' },
+          ].map(m => (
             <button
-              key={m}
-              className={`mode-tab ${mode === m ? 'active' : ''}`}
-              onClick={() => setMode(m)}
+              key={m.key}
+              className={`mode-tab ${mode === m.key ? 'active' : ''}`}
+              onClick={() => setMode(m.key)}
             >
-              {m === 'explore' ? '🔍 Explore' : m === 'compare' ? '⚖️ Compare' : '🌳 Simulate'}
+              {m.label}
             </button>
           ))}
         </div>
@@ -223,7 +285,7 @@ export default function App() {
             attribution='&copy; OSM &copy; CARTO'
           />
 
-          {/* Heat map image overlay */}
+          {/* Base heat map */}
           {imageUrl && leafletBounds && (
             <ImageOverlay
               url={imageUrl}
@@ -233,13 +295,74 @@ export default function App() {
             />
           )}
 
-          {/* Labels on top of heat overlay */}
+          {/* Simulation overlay (shows post-intervention temps) */}
+          {simOverlay && (
+            <>
+              <ImageOverlay
+                url={simOverlay.imageUrl}
+                bounds={simOverlay.bounds}
+                opacity={0.95}
+                className="heat-overlay-img"
+              />
+              <Circle
+                center={[
+                  (simOverlay.bounds[0][0] + simOverlay.bounds[1][0]) / 2,
+                  (simOverlay.bounds[0][1] + simOverlay.bounds[1][1]) / 2,
+                ]}
+                radius={
+                  Math.max(
+                    (simOverlay.bounds[1][0] - simOverlay.bounds[0][0]) * 111000 / 2,
+                    200
+                  )
+                }
+                pathOptions={{
+                  color: '#2ecc71',
+                  weight: 2,
+                  dashArray: '6 4',
+                  fillOpacity: 0,
+                }}
+              />
+            </>
+          )}
+
+          {/* Priority zone markers */}
+          {priorityZones.map((zone, i) => {
+            const isFeasible = zone.feasibility >= 0.5
+            return (
+              <CircleMarker
+                key={i}
+                center={[zone.lat, zone.lon]}
+                radius={isFeasible ? 10 : 6}
+                pathOptions={{
+                  color: isFeasible ? '#2ecc71' : '#e74c3c',
+                  weight: 2,
+                  fillColor: isFeasible ? '#2ecc71' : '#e74c3c',
+                  fillOpacity: 0.6,
+                }}
+                eventHandlers={{
+                  click: () => handleSelectZone(zone),
+                }}
+              >
+                <Popup>
+                  <div style={{ fontSize: 12, minWidth: 150 }}>
+                    <strong>#{i + 1} {zone.land_use_label}</strong><br />
+                    Temp: {zone.avg_temp_f}°F<br />
+                    Score: {(zone.priority_score * 100).toFixed(0)}/100<br />
+                    <em>{zone.recommendation}</em>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            )
+          })}
+
+          {/* Labels on top */}
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png"
             pane="overlayPane"
           />
 
           <MapClickHandler onMapClick={handleMapClick} />
+          {flyTarget && <FlyTo center={flyTarget} zoom={14} />}
         </MapContainer>
       </div>
 
@@ -286,7 +409,15 @@ export default function App() {
         <SidePanel cell={selectedCell} cityStats={cityStats} onClose={() => setSelectedCell(null)} />
       )}
       {mode === 'compare' && <ComparePanel />}
-      {mode === 'simulate' && <SimulatePanel selectedCell={selectedCell} />}
+      {mode === 'simulate' && (
+        <SimulatePanel
+          selectedCell={selectedCell}
+          onSimulationResult={handleSimulationResult}
+        />
+      )}
+      {mode === 'priorities' && (
+        <PrioritiesPanel onSelectZone={handleSelectZone} />
+      )}
     </div>
   )
 }

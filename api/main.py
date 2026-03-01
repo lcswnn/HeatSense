@@ -1,5 +1,5 @@
 """
-HeatSense — FastAPI Backend
+TomorrowLand Heat — FastAPI Backend
 ====================================
 Serves heat model predictions, grid data, and heat map images.
 
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from heat_model import HeatModel
 
 app = FastAPI(
-    title="HeatSense API",
+    title="TomorrowLand Heat API",
     description="Urban heat island prediction and intervention simulation for Chicago",
     version="1.0.0",
 )
@@ -44,7 +44,7 @@ heatmap_cache = {}
 @app.on_event("startup")
 def load_model():
     global model
-    print("\n  Loading HeatSense model...")
+    print("\n  Loading TomorrowLand Heat model...")
     start = time.time()
 
     api_dir = os.path.dirname(os.path.abspath(__file__))
@@ -184,3 +184,66 @@ def get_neighborhoods():
         {"name": "Rogers Park", "lat": 42.0087, "lon": -87.6723},
         {"name": "South Shore", "lat": 41.7613, "lon": -87.5767},
     ]
+
+
+# ============================================================
+# Simulation overlay image
+# ============================================================
+
+@app.get("/api/simulate/overlay")
+def get_simulation_overlay(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_m: float = Query(500),
+    intervention_type: str = Query("moderate"),
+):
+    """
+    Generate a PNG overlay showing post-intervention temperatures.
+    Returns the image directly — use as an <img> src or Leaflet ImageOverlay.
+    """
+    png_bytes, bounds = model.generate_simulation_png(
+        lat=lat, lon=lon, radius_m=radius_m, intervention_type=intervention_type
+    )
+    if png_bytes is None:
+        return Response(content="No cells in area", status_code=404)
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "X-Bounds-South": str(bounds["south"]),
+            "X-Bounds-North": str(bounds["north"]),
+            "X-Bounds-West": str(bounds["west"]),
+            "X-Bounds-East": str(bounds["east"]),
+        },
+    )
+
+
+@app.get("/api/simulate/overlay/bounds")
+def get_simulation_overlay_bounds(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_m: float = Query(500),
+    intervention_type: str = Query("moderate"),
+):
+    """Get bounds for a simulation overlay."""
+    _, bounds = model.generate_simulation_png(
+        lat=lat, lon=lon, radius_m=radius_m, intervention_type=intervention_type
+    )
+    return bounds or {"error": "No cells"}
+
+
+# ============================================================
+# Smart intervention targeting
+# ============================================================
+
+@app.get("/api/priorities")
+def get_priority_interventions(
+    min_temp_f: float = Query(100, description="Minimum temperature threshold"),
+    top_n: int = Query(15, description="Number of priority zones to return"),
+):
+    """
+    Identify the best locations for green infrastructure investment.
+    Analyzes hot zones, classifies land use, and scores by feasibility + impact.
+    """
+    return model.find_priority_interventions(min_temp_f=min_temp_f, top_n=top_n)

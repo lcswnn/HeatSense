@@ -1,5 +1,5 @@
 """
-HeatSense — Model Service
+TomorrowLand Heat — Model Service
 ==================================
 Loads the trained model and grid data, provides prediction,
 intervention simulation, and heat map image generation.
@@ -425,6 +425,257 @@ class HeatModel:
                     risk: round(float((cells["heat_risk"] == risk).mean() * 100), 1)
                     for risk in ["extreme", "high", "moderate", "low"]
                 }
+            })
+
+        return results
+
+    # ============================================================
+    # SIMULATION OVERLAY IMAGE
+    # ============================================================
+
+    def generate_simulation_png(self, lat, lon, radius_m, intervention_type, opacity=220):
+        """
+        Generate a PNG showing before→after cooling for an intervention area.
+        Green = cooled cells. Brightness = amount of cooling.
+        Returns: bytes (PNG), bounds dict
+        """
+        from PIL import Image
+
+        config_map = {
+            "light":    {"ndvi_add": 0.12, "impervious_reduce": 5,  "park_area_add": 0.0,  "park_dist_factor": 1.0},
+            "moderate": {"ndvi_add": 0.25, "impervious_reduce": 20, "park_area_add": 0.05, "park_dist_factor": 0.7},
+            "heavy":    {"ndvi_add": 0.40, "impervious_reduce": 35, "park_area_add": 0.15, "park_dist_factor": 0.4},
+        }
+        config = config_map.get(intervention_type, config_map["moderate"])
+
+        df = self.grid_valid
+        lat_range = radius_m / 111000
+        lon_range = radius_m / 82000
+
+        mask = (
+            (df["lat"] >= lat - lat_range) & (df["lat"] <= lat + lat_range) &
+            (df["lon"] >= lon - lon_range) & (df["lon"] <= lon + lon_range)
+        )
+        affected = df[mask].copy()
+        if len(affected) == 0:
+            return None, None
+
+        # Predict before/after
+        before_preds = self.model.predict(affected[self.features])
+
+        X_mod = affected[self.features].copy()
+        if "ndvi" in self.features:
+            X_mod["ndvi"] = np.clip(X_mod["ndvi"] + config["ndvi_add"], -1, 1)
+        if "impervious_pct" in self.features:
+            X_mod["impervious_pct"] = np.clip(X_mod["impervious_pct"] - config["impervious_reduce"], 0, 100)
+        if "park_area_pct" in self.features:
+            X_mod["park_area_pct"] = np.clip(X_mod["park_area_pct"] + config["park_area_add"], 0, 1)
+        if "distance_to_park_m" in self.features:
+            X_mod["distance_to_park_m"] = X_mod["distance_to_park_m"] * config["park_dist_factor"]
+
+        after_preds = self.model.predict(X_mod)
+        cooling = before_preds - after_preds
+
+        # Build small image for just the affected area
+        a_min_lat = float(affected["lat"].min())
+        a_max_lat = float(affected["lat"].max())
+        a_min_lon = float(affected["lon"].min())
+        a_max_lon = float(affected["lon"].max())
+
+        spacing = self.spacing
+        cols = int(round((a_max_lon - a_min_lon) / spacing)) + 1
+        rows = int(round((a_max_lat - a_min_lat) / spacing)) + 1
+        cols = max(cols, 1)
+        rows = max(rows, 1)
+
+        img = Image.new("RGBA", (cols, rows), (0, 0, 0, 0))
+        pixels = img.load()
+
+        for i, (_, row) in enumerate(affected.iterrows()):
+            c = int(round((row["lon"] - a_min_lon) / spacing))
+            r = int(round((a_max_lat - row["lat"]) / spacing))
+            if 0 <= c < cols and 0 <= r < rows:
+                cool = float(cooling[i])
+                after_t = float(after_preds[i])
+                # Color: green intensity based on cooling amount
+                rgb = self._temp_to_rgb(after_t)
+                pixels[c, r] = (rgb[0], rgb[1], rgb[2], opacity)
+
+        scale = 6
+        img_scaled = img.resize((cols * scale, rows * scale), Image.NEAREST)
+
+        buf = io.BytesIO()
+        img_scaled.save(buf, format="PNG")
+        buf.seek(0)
+
+        pad = spacing / 2
+        bounds = {
+            "south": a_min_lat - pad,
+            "north": a_max_lat + pad,
+            "west": a_min_lon - pad,
+            "east": a_max_lon + pad,
+        }
+
+        return buf.getvalue(), bounds
+
+    # ============================================================
+    # SMART INTERVENTION TARGETING
+    # ============================================================
+
+    def find_priority_interventions(self, min_temp_f=100, top_n=15):
+        """
+        Identify the best locations for green interventions by analyzing
+        hot areas and filtering out infeasible locations (airports, rail, highways).
+
+        Scoring logic:
+        - Higher temperature → higher priority
+        - Lower NDVI (less vegetation) → more room for improvement
+        - Higher building density in residential range → more people benefit
+        - Closer to existing parks → easier to expand
+        - Very high impervious + zero buildings → likely infrastructure (airport/highway), penalize
+
+        Returns list of priority zones with scores and descriptions.
+        """
+        df = self.grid_valid.copy()
+
+        # Filter to hot cells
+        hot = df[df["mean_lst_f"] >= min_temp_f].copy()
+        if len(hot) == 0:
+            return []
+
+        # ---- Land use classification heuristics ----
+        # We don't have explicit zoning data, but we can infer from features:
+        # Airport/runway: very high impervious (>90%), near-zero buildings, near-zero NDVI
+        # Highway/railroad: very high impervious, zero buildings, high road density
+        # Industrial: high impervious, moderate buildings, low NDVI
+        # Commercial: high building density, moderate-high impervious
+        # Residential: moderate building density, some NDVI
+        # Vacant/open: low building density, low NDVI, moderate impervious
+
+        conditions = []
+        for _, row in hot.iterrows():
+            imp = float(row.get("impervious_pct", 0))
+            ndvi = float(row.get("ndvi", 0))
+            bd = float(row.get("building_density", 0))
+            bc = float(row.get("building_count", 0))
+            rd = float(row.get("road_density_km", 0))
+            ht = float(row.get("avg_building_height_m", 0))
+            park_d = float(row.get("distance_to_park_m", 0))
+
+            # Classify
+            if imp > 90 and bd < 0.05 and ndvi < 0.05:
+                land_use = "airport_runway"
+                feasibility = 0.05  # Can't plant trees on runways
+            elif imp > 85 and bd < 0.02 and rd > 0.01:
+                land_use = "highway_rail"
+                feasibility = 0.1  # Very limited options
+            elif imp > 75 and bd > 0.3 and ht > 15:
+                land_use = "commercial_highrise"
+                feasibility = 0.3  # Green roofs possible
+            elif imp > 70 and bd > 0.2 and ht <= 15:
+                land_use = "commercial_industrial"
+                feasibility = 0.5  # Parking lots, some tree planting
+            elif bd > 0.05 and bd <= 0.3:
+                land_use = "residential"
+                feasibility = 0.9  # Best candidates — street trees, yard programs
+            elif bd <= 0.05 and imp < 60:
+                land_use = "vacant_open"
+                feasibility = 1.0  # Ideal for pocket parks
+            else:
+                land_use = "mixed_urban"
+                feasibility = 0.6
+
+            conditions.append({
+                "lat": float(row["lat"]),
+                "lon": float(row["lon"]),
+                "temp_f": round(float(row["mean_lst_f"]), 1),
+                "ndvi": round(ndvi, 3),
+                "impervious_pct": round(imp, 1),
+                "building_density": round(bd, 3),
+                "distance_to_park_m": round(park_d, 0),
+                "land_use": land_use,
+                "feasibility": feasibility,
+            })
+
+        cdf = pd.DataFrame(conditions)
+
+        # ---- Score each cell ----
+        # Normalize components to 0-1 range
+        temp_range = cdf["temp_f"].max() - cdf["temp_f"].min()
+        if temp_range == 0:
+            temp_range = 1
+
+        cdf["heat_score"] = (cdf["temp_f"] - cdf["temp_f"].min()) / temp_range
+        cdf["veg_need_score"] = 1 - np.clip(cdf["ndvi"] / 0.4, 0, 1)  # Low NDVI = high need
+        cdf["park_access_score"] = np.clip(cdf["distance_to_park_m"] / 1500, 0, 1)  # Far from park = high need
+
+        # Combined priority score
+        cdf["priority_score"] = (
+            cdf["heat_score"] * 0.35 +
+            cdf["veg_need_score"] * 0.25 +
+            cdf["park_access_score"] * 0.15 +
+            cdf["feasibility"] * 0.25
+        )
+
+        # ---- Cluster nearby cells into zones ----
+        # Group by rounding to ~500m blocks
+        cdf["block_lat"] = (cdf["lat"] / 0.005).round() * 0.005
+        cdf["block_lon"] = (cdf["lon"] / 0.005).round() * 0.005
+
+        zones = cdf.groupby(["block_lat", "block_lon"]).agg(
+            avg_temp_f=("temp_f", "mean"),
+            avg_ndvi=("ndvi", "mean"),
+            avg_impervious=("impervious_pct", "mean"),
+            avg_priority=("priority_score", "mean"),
+            avg_feasibility=("feasibility", "mean"),
+            cell_count=("temp_f", "count"),
+            primary_land_use=("land_use", lambda x: x.mode().iloc[0] if len(x) > 0 else "unknown"),
+            avg_park_dist=("distance_to_park_m", "mean"),
+        ).reset_index()
+
+        # Filter to zones with enough cells to matter
+        zones = zones[zones["cell_count"] >= 3]
+
+        # Sort by priority
+        zones = zones.sort_values("avg_priority", ascending=False).head(top_n)
+
+        # Format results
+        land_use_labels = {
+            "airport_runway": "Airport / Runway",
+            "highway_rail": "Highway / Railroad",
+            "commercial_highrise": "Commercial (High-rise)",
+            "commercial_industrial": "Commercial / Industrial",
+            "residential": "Residential Neighborhood",
+            "vacant_open": "Vacant / Open Land",
+            "mixed_urban": "Mixed Urban",
+        }
+
+        intervention_recs = {
+            "airport_runway": "Not feasible for green intervention",
+            "highway_rail": "Limited — consider sound barrier vegetation",
+            "commercial_highrise": "Green roofs, rooftop gardens",
+            "commercial_industrial": "Parking lot trees, cool pavement, shade structures",
+            "residential": "Street trees, yard programs, community gardens",
+            "vacant_open": "Pocket parks, urban forest, community gardens",
+            "mixed_urban": "Street trees, cool roofs, shade structures",
+        }
+
+        results = []
+        for _, z in zones.iterrows():
+            lu = str(z["primary_land_use"])
+            results.append({
+                "lat": round(float(z["block_lat"]), 4),
+                "lon": round(float(z["block_lon"]), 4),
+                "avg_temp_f": round(float(z["avg_temp_f"]), 1),
+                "avg_ndvi": round(float(z["avg_ndvi"]), 3),
+                "avg_impervious_pct": round(float(z["avg_impervious"]), 1),
+                "cell_count": int(z["cell_count"]),
+                "priority_score": round(float(z["avg_priority"]), 3),
+                "feasibility": round(float(z["avg_feasibility"]), 2),
+                "land_use": lu,
+                "land_use_label": land_use_labels.get(lu, lu),
+                "recommendation": intervention_recs.get(lu, "Evaluate on-site"),
+                "distance_to_park_m": round(float(z["avg_park_dist"]), 0),
             })
 
         return results
