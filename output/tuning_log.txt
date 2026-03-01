@@ -1,0 +1,147 @@
+============================================================
+  Step 1: Smart Data Preparation
+============================================================
+
+  Raw dataset: 147,976 rows
+  After requiring target: 145,678 rows
+  After removing temp outliers: 145,678 rows
+  After removing water: 142,784 rows
+
+  Missing data per feature:
+  --------------------------------------------------
+    ndvi                            0 missing (0.0%)
+    impervious_pct             30,058 missing (21.1%)
+    lat                             0 missing (0.0%)
+    lon                             0 missing (0.0%)
+    building_count                  0 missing (0.0%)
+    building_density                0 missing (0.0%)
+    avg_building_height_m      96,853 missing (67.8%)
+    road_density_km                 0 missing (0.0%)
+    distance_to_park_m              0 missing (0.0%)
+    distance_to_water_m             0 missing (0.0%)
+    park_area_pct                   0 missing (0.0%)
+
+  Imputation strategy:
+    avg_building_height_m: filled 96,853 with 0.0 (no buildings)
+    impervious_pct: filled 30,058 with median (65.0)
+
+  Final dataset: 142,784 rows (recovered +96,907 vs dropping NaN)
+  Features: ['ndvi', 'impervious_pct', 'lat', 'lon', 'building_count', 'building_density', 'avg_building_height_m', 'road_density_km', 'distance_to_park_m', 'distance_to_water_m', 'park_area_pct']
+
+============================================================
+  Step 2: Feature Selection
+============================================================
+...
+
+Did not meet early stopping. Best iteration is:
+[800]   valid_0's l1: 1.34629
+  Top permutation (7)         7      1.165      1.346      1.339    0.9723    0.174
+
+  ★ Best test MAE: Full (11) → 1.315 F
+  ★ Best balanced: Full (11) → MAE=1.315, Gap=0.204
+
+  Using feature set: Full (11)
+  Features: ['ndvi', 'impervious_pct', 'lat', 'lon', 'building_count', 'building_density', 'avg_building_height_m', 'road_density_km', 'distance_to_park_m', 'distance_to_water_m', 'park_area_pct']
+
+
+============================================================
+  Step 3: Hyperparameter Tuning
+============================================================
+
+  Testing 216 hyperparameter combinations...
+  Features: ['ndvi', 'impervious_pct', 'lat', 'lon', 'building_count', 'building_density', 'avg_building_height_m', 'road_density_km', 'distance_to_park_m', 'distance_to_water_m', 'park_area_pct']
+
+ Top 5 configurations:
+  Leaves MinChild    LR Alpha Lambda TrainMAE  TestMAE      R²    Gap
+  ---------------------------------------------------------------------------
+     127       20  0.03   1.0    1.0    0.854    1.238  0.9761  0.385
+     127       50  0.03   1.0    0.0    0.890    1.248  0.9756  0.358
+     127       20  0.03   1.0    0.0    0.847    1.238  0.9761  0.392
+     127       20  0.03   1.0    0.1    0.848    1.238  0.9760  0.391
+     127       50  0.03   0.1    0.0    0.887    1.248  0.9755  0.361
+
+  ★ Best params: num_leaves=127, min_child_samples=20, lr=0.03, alpha=1.0, lambda=1.0
+
+============================================================
+  Step 4: Final Model Training
+============================================================
+
+  Train: 97,092 | Val: 17,135 | Test: 28,557
+  Features: 11
+
+  Train: 97,092 | Val: 17,135 | Test: 28,557
+  Features: 11
+Training until validation scores don't improve for 50 rounds
+[100]   valid_0's l1: 1.71827
+[200]   valid_0's l1: 1.42046
+[300]   valid_0's l1: 1.37339
+[400]   valid_0's l1: 1.34699
+[500]   valid_0's l1: 1.32711
+[600]   valid_0's l1: 1.30985
+[700]   valid_0's l1: 1.29691
+[800]   valid_0's l1: 1.28584
+[900]   valid_0's l1: 1.27582
+[1000]  valid_0's l1: 1.26904
+[1100]  valid_0's l1: 1.26092
+[1200]  valid_0's l1: 1.25637
+[1300]  valid_0's l1: 1.25045
+[1400]  valid_0's l1: 1.24481
+[1500]  valid_0's l1: 1.23855
+Did not meet early stopping. Best iteration is:
+[1500]  valid_0's l1: 1.23855
+
+  Train        MAE: 0.865 F | RMSE: 1.218 F | R²: 0.9899
+  Validation   MAE: 1.239 F | RMSE: 1.870 F | R²: 0.9763
+  Test         MAE: 1.229 F | RMSE: 1.856 F | R²: 0.9764
+
+  5-Fold CV:   MAE: 1.247 +/- 0.005 F
+
+  Extreme Heat Performance (cells > 105°F):
+    2,024 extreme cells | MAE: 2.231 F | R²: -0.3264
+    7,159 cool cells (<90°F) | MAE: 0.763 F
+
+============================================================
+  Step 5: Improved Intervention Simulation
+============================================================
+
+  Hottest 1,428 cells (>= 105.0°F predicted)
+  Avg predicted temp: 106.3°F
+  Avg NDVI: 0.150
+  Avg building density: 0.349
+
+  Intervention                   Temp After    Cooling
+  -------------------------------------------------------
+  Street trees (light)              105.4°F      +1.0°F
+  Pocket parks (moderate)           103.2°F      +3.2°F
+  Green corridor (heavy)            100.2°F      +6.1°F
+
+  Note: These estimates adjust correlated features together
+  (tree planting also reduces impervious surface and increases park area)
+
+============================================================
+  Step 6: Generating Visualizations
+============================================================
+
+sent.
+
+============================================================
+  Saving Tuned Model
+============================================================
+  Saved model: model/models/chicago_heat_model_tuned.pkl
+  Saved metadata: model/models/chicago_tuned_metadata.json
+
+============================================================
+  TUNING COMPLETE
+============================================================
+
+  Dataset: 142,784 cells (vs 45,877 before imputation)
+  Features: 11 (Full (11))
+  Test MAE: 1.229°F
+  Test R²:  0.9764
+  Train-Test gap: 0.364°F
+  Extreme heat MAE: 2.231°F
+
+  Intervention estimates:
+    Street trees (light): +1.0°F cooling
+    Pocket parks (moderate): +3.2°F cooling
+    Green corridor (heavy): +6.1°F cooling
