@@ -80,9 +80,17 @@ export default function SidePanel({ cell, cityStats, onClose }) {
             }
 
             <div style={{ marginTop: 20, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
-              <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                Data: Landsat 8/9 thermal imagery, Sentinel-2 vegetation, OpenStreetMap buildings.
-                Summer averages 2022-2025.
+              <p style={{ fontSize: 12, color: '#999', fontWeight: 600, marginBottom: 4 }}>
+                About the data
+              </p>
+              <p style={{ fontSize: 11, color: '#666', lineHeight: 1.6 }}>
+                Temperatures shown are <strong style={{ color: '#aaa' }}>land surface temperatures</strong> measured
+                by Landsat 8/9 satellites during summer months (2022–2025). Surface temps are typically
+                15–30°F higher than the air temperature you feel, but they drive the urban heat island
+                effect — hotter surfaces radiate more heat into surrounding neighborhoods.
+              </p>
+              <p style={{ fontSize: 11, color: '#666', lineHeight: 1.6, marginTop: 6 }}>
+                Vegetation data from Sentinel-2. Building and road data from OpenStreetMap.
               </p>
             </div>
           </>
@@ -116,7 +124,7 @@ export default function SidePanel({ cell, cityStats, onClose }) {
           {cell.temperature_f}°F
         </div>
         <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
-          Surface Temperature
+          Land Surface Temperature
         </div>
         <div style={{ marginTop: 8 }}>
           <span className={`temp-badge ${getRiskClass(cell.heat_risk)}`}>
@@ -127,6 +135,26 @@ export default function SidePanel({ cell, cityStats, onClose }) {
           {cell.vs_city_avg_f > 0 ? '+' : ''}{cell.vs_city_avg_f}°F vs city average
           {' · '}Hotter than {cell.temp_percentile}% of Chicago
         </div>
+      </div>
+
+      {/* Surface temp explainer */}
+      <div style={{
+        padding: 10, marginBottom: 12, borderRadius: 8,
+        background: 'rgba(241, 196, 15, 0.06)',
+        border: '1px solid rgba(241, 196, 15, 0.12)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: '#999' }}>Est. Air Temperature</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#f1c40f' }}>
+            ~{Math.round(cell.temperature_f - 20)}–{Math.round(cell.temperature_f - 15)}°F
+          </span>
+        </div>
+        <p style={{ fontSize: 11, color: '#666', lineHeight: 1.5, margin: 0 }}>
+          Surface temperature is measured by Landsat satellites looking down at rooftops and
+          pavement. Surfaces are typically 15–30°F hotter than the air you feel.
+          Areas with higher surface temps radiate more heat, making nearby air temperatures
+          warmer — this is the urban heat island effect.
+        </p>
       </div>
 
       {/* Coordinates */}

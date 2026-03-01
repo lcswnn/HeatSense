@@ -1,15 +1,29 @@
 """
 TomorrowLand Heat — Model Service
 ==================================
-Loads the trained model and grid data, provides prediction and
-intervention simulation functions for the API layer.
+Loads the trained model and grid data, provides prediction,
+intervention simulation, and heat map image generation.
 """
 
 import pickle
 import json
+import io
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+
+def to_python(val):
+    """Convert numpy types to Python native types for JSON serialization."""
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if pd.isna(val):
+        return None
+    return val
 
 
 class HeatModel:
@@ -23,10 +37,8 @@ class HeatModel:
         self._load(model_dir, grid_path)
 
     def _load(self, model_dir, grid_path):
-        """Load model, metadata, and grid data."""
         model_dir = Path(model_dir)
 
-        # Try tuned model first, fall back to original
         tuned_path = model_dir / "chicago_heat_model_tuned.pkl"
         original_path = model_dir / "chicago_heat_model.pkl"
 
@@ -41,17 +53,14 @@ class HeatModel:
         else:
             raise FileNotFoundError(f"No model found in {model_dir}")
 
-        # Load model
         with open(model_path, "rb") as f:
             self.model = pickle.load(f)
 
-        # Load metadata
         if meta_path.exists():
             with open(meta_path, "r") as f:
                 self.metadata = json.load(f)
             self.features = self.metadata.get("features", [])
         else:
-            # Fallback feature list
             self.features = [
                 "ndvi", "impervious_pct", "lat", "lon",
                 "building_count", "building_density", "avg_building_height_m",
@@ -61,7 +70,6 @@ class HeatModel:
 
         print(f"  Features: {self.features}")
 
-        # Load grid data
         grid_path = Path(grid_path)
         if grid_path.exists():
             self.grid = pd.read_csv(grid_path)
@@ -71,10 +79,8 @@ class HeatModel:
             raise FileNotFoundError(f"Grid not found at {grid_path}")
 
     def _prepare_grid(self):
-        """Prepare grid data — impute missing values same as training."""
         df = self.grid
 
-        # Same imputation as tune_model.py
         fill_zero = ["building_count", "building_density", "avg_building_height_m",
                       "road_density_km", "park_area_pct"]
         for col in fill_zero:
@@ -89,43 +95,138 @@ class HeatModel:
                 p95 = df[col].quantile(0.95)
                 df[col] = df[col].fillna(p95)
 
-        # Add predictions for all cells that have the required features
         valid_mask = df[self.features].notna().all(axis=1) & df["mean_lst_f"].notna()
         self.grid_valid = df[valid_mask].copy()
-
-        # Remove water pixels
         self.grid_valid = self.grid_valid[self.grid_valid["ndvi"] > -0.1].copy()
 
-        # Generate predictions
         self.grid_valid["predicted_lst_f"] = self.model.predict(
             self.grid_valid[self.features]
         )
 
+        # Pre-compute grid parameters for image generation
+        self._compute_grid_params()
+
         print(f"  Valid cells with predictions: {len(self.grid_valid):,}")
 
-    def get_grid_data(self, bbox=None, downsample=None):
-        """
-        Get grid data, optionally filtered to a bounding box.
-        Returns a list of dicts for JSON serialization.
+    def _compute_grid_params(self):
+        """Compute the grid dimensions for image generation."""
+        df = self.grid_valid
+        self.min_lat = float(df["lat"].min())
+        self.max_lat = float(df["lat"].max())
+        self.min_lon = float(df["lon"].min())
+        self.max_lon = float(df["lon"].max())
+        self.spacing = 0.0009  # ~100m
 
-        Args:
-            bbox: dict with west, south, east, north (optional)
-            downsample: int, return every Nth cell for performance (optional)
+        self.grid_cols = int(round((self.max_lon - self.min_lon) / self.spacing)) + 1
+        self.grid_rows = int(round((self.max_lat - self.min_lat) / self.spacing)) + 1
+        print(f"  Grid image dimensions: {self.grid_cols} x {self.grid_rows}")
+
+    # ============================================================
+    # HEAT MAP IMAGE GENERATION
+    # ============================================================
+
+    def generate_heatmap_png(self, layer="temperature", opacity=200):
         """
+        Generate a PNG heat map image that can be overlaid on a Leaflet map.
+        Returns: bytes (PNG image), bounds dict
+        """
+        from PIL import Image
+
+        img = Image.new("RGBA", (self.grid_cols, self.grid_rows), (0, 0, 0, 0))
+        pixels = img.load()
+
+        df = self.grid_valid
+
+        for _, row in df.iterrows():
+            col_idx = int(round((row["lon"] - self.min_lon) / self.spacing))
+            row_idx = int(round((self.max_lat - row["lat"]) / self.spacing))
+
+            if 0 <= col_idx < self.grid_cols and 0 <= row_idx < self.grid_rows:
+                if layer == "temperature":
+                    rgb = self._temp_to_rgb(row["mean_lst_f"])
+                elif layer == "risk":
+                    rgb = self._risk_to_rgb(row.get("heat_risk", ""))
+                elif layer == "ndvi":
+                    rgb = self._ndvi_to_rgb(row["ndvi"])
+                else:
+                    rgb = self._temp_to_rgb(row["mean_lst_f"])
+
+                pixels[col_idx, row_idx] = (rgb[0], rgb[1], rgb[2], opacity)
+
+        # Scale up the image so pixels become visible blocks
+        scale = 6
+        img_scaled = img.resize(
+            (self.grid_cols * scale, self.grid_rows * scale),
+            Image.NEAREST  # Nearest neighbor = crisp blocks
+        )
+
+        buf = io.BytesIO()
+        img_scaled.save(buf, format="PNG")
+        buf.seek(0)
+
+        bounds = {
+            "south": self.min_lat - self.spacing / 2,
+            "north": self.max_lat + self.spacing / 2,
+            "west": self.min_lon - self.spacing / 2,
+            "east": self.max_lon + self.spacing / 2,
+        }
+
+        return buf.getvalue(), bounds
+
+    @staticmethod
+    def _temp_to_rgb(temp):
+        if temp is None or pd.isna(temp): return (80, 80, 80)
+        if temp >= 115: return (128, 0, 0)
+        if temp >= 110: return (180, 30, 30)
+        if temp >= 107: return (210, 50, 40)
+        if temp >= 104: return (231, 76, 60)
+        if temp >= 101: return (230, 120, 40)
+        if temp >= 98:  return (240, 160, 30)
+        if temp >= 95:  return (241, 196, 15)
+        if temp >= 92:  return (200, 210, 50)
+        if temp >= 89:  return (120, 190, 100)
+        if temp >= 85:  return (70, 170, 140)
+        if temp >= 80:  return (52, 152, 219)
+        if temp >= 75:  return (41, 120, 200)
+        return (30, 70, 160)
+
+    @staticmethod
+    def _risk_to_rgb(risk):
+        colors = {
+            "extreme": (139, 0, 0),
+            "high": (231, 76, 60),
+            "moderate": (230, 126, 34),
+            "low": (52, 152, 219),
+        }
+        return colors.get(risk, (60, 60, 60))
+
+    @staticmethod
+    def _ndvi_to_rgb(ndvi):
+        if ndvi is None or pd.isna(ndvi): return (80, 80, 80)
+        if ndvi >= 0.55: return (0, 90, 0)
+        if ndvi >= 0.45: return (20, 120, 20)
+        if ndvi >= 0.35: return (46, 160, 70)
+        if ndvi >= 0.25: return (100, 180, 90)
+        if ndvi >= 0.15: return (180, 190, 80)
+        if ndvi >= 0.05: return (200, 150, 70)
+        return (160, 82, 45)
+
+    # ============================================================
+    # GRID DATA (JSON)
+    # ============================================================
+
+    def get_grid_data(self, bbox=None, downsample=None):
         df = self.grid_valid
 
         if bbox:
             df = df[
-                (df["lon"] >= bbox["west"]) &
-                (df["lon"] <= bbox["east"]) &
-                (df["lat"] >= bbox["south"]) &
-                (df["lat"] <= bbox["north"])
+                (df["lon"] >= bbox["west"]) & (df["lon"] <= bbox["east"]) &
+                (df["lat"] >= bbox["south"]) & (df["lat"] <= bbox["north"])
             ]
 
         if downsample and downsample > 1:
             df = df.iloc[::downsample]
 
-        # Select columns to send to frontend
         columns = [
             "cell_id", "lon", "lat",
             "mean_lst_f", "predicted_lst_f", "ndvi", "impervious_pct",
@@ -135,30 +236,33 @@ class HeatModel:
         ]
         columns = [c for c in columns if c in df.columns]
 
-        # Round floats for smaller JSON payload
         result = df[columns].copy()
         for col in result.select_dtypes(include=[np.floating]).columns:
             result[col] = result[col].round(2)
 
-        return result.to_dict(orient="records")
+        records = result.to_dict(orient="records")
+        # Convert numpy types to native Python types
+        for rec in records:
+            for k, v in rec.items():
+                rec[k] = to_python(v)
+
+        return records
+
+    # ============================================================
+    # CELL DETAIL
+    # ============================================================
 
     def get_cell_detail(self, lat, lon):
-        """
-        Get detailed info for the nearest grid cell to a lat/lon point.
-        """
         df = self.grid_valid
-
-        # Find nearest cell using simple distance
         distances = np.sqrt((df["lat"] - lat)**2 + (df["lon"] - lon)**2)
         idx = distances.idxmin()
         cell = df.loc[idx]
 
-        # City-wide stats for comparison
-        city_avg_temp = df["mean_lst_f"].mean()
-        city_avg_ndvi = df["ndvi"].mean()
+        city_avg_temp = float(df["mean_lst_f"].mean())
+        city_avg_ndvi = float(df["ndvi"].mean())
 
         detail = {
-            "cell_id": cell.get("cell_id", ""),
+            "cell_id": to_python(cell.get("cell_id", "")),
             "lat": round(float(cell["lat"]), 5),
             "lon": round(float(cell["lon"]), 5),
             "temperature_f": round(float(cell["mean_lst_f"]), 1),
@@ -171,110 +275,77 @@ class HeatModel:
             "distance_to_water_m": round(float(cell.get("distance_to_water_m", 0)), 0),
             "road_density_km": round(float(cell.get("road_density_km", 0)), 3),
             "park_area_pct": round(float(cell.get("park_area_pct", 0)), 3),
-            "heat_risk": cell.get("heat_risk", "unknown"),
-            # Comparisons
-            "vs_city_avg_f": round(float(cell["mean_lst_f"] - city_avg_temp), 1),
-            "city_avg_temp_f": round(float(city_avg_temp), 1),
-            "city_avg_ndvi": round(float(city_avg_ndvi), 3),
+            "heat_risk": str(cell.get("heat_risk", "unknown")),
+            "vs_city_avg_f": round(float(cell["mean_lst_f"]) - city_avg_temp, 1),
+            "city_avg_temp_f": round(city_avg_temp, 1),
+            "city_avg_ndvi": round(city_avg_ndvi, 3),
         }
 
-        # Percentile ranking
-        percentile = (df["mean_lst_f"] < cell["mean_lst_f"]).mean() * 100
-        detail["temp_percentile"] = round(float(percentile), 1)
+        percentile = float((df["mean_lst_f"] < cell["mean_lst_f"]).mean() * 100)
+        detail["temp_percentile"] = round(percentile, 1)
 
         return detail
 
-    def simulate_intervention(self, lat, lon, radius_m=500, intervention_type="moderate"):
-        """
-        Simulate a green infrastructure intervention around a point.
+    # ============================================================
+    # INTERVENTION SIMULATION
+    # ============================================================
 
-        Args:
-            lat, lon: center of intervention
-            radius_m: radius of effect in meters
-            intervention_type: "light", "moderate", or "heavy"
-        """
+    def simulate_intervention(self, lat, lon, radius_m=500, intervention_type="moderate"):
         interventions = {
             "light": {
                 "name": "Street Trees",
                 "description": "Plant street trees along main roads",
-                "ndvi_add": 0.12,
-                "impervious_reduce": 5,
-                "park_area_add": 0.0,
-                "park_dist_factor": 1.0,
+                "ndvi_add": 0.12, "impervious_reduce": 5,
+                "park_area_add": 0.0, "park_dist_factor": 1.0,
             },
             "moderate": {
                 "name": "Pocket Parks",
                 "description": "Convert vacant lots to pocket parks + tree planting",
-                "ndvi_add": 0.25,
-                "impervious_reduce": 20,
-                "park_area_add": 0.05,
-                "park_dist_factor": 0.7,
+                "ndvi_add": 0.25, "impervious_reduce": 20,
+                "park_area_add": 0.05, "park_dist_factor": 0.7,
             },
             "heavy": {
                 "name": "Green Corridor",
                 "description": "Major green infrastructure: parks, green roofs, urban forest",
-                "ndvi_add": 0.40,
-                "impervious_reduce": 35,
-                "park_area_add": 0.15,
-                "park_dist_factor": 0.4,
+                "ndvi_add": 0.40, "impervious_reduce": 35,
+                "park_area_add": 0.15, "park_dist_factor": 0.4,
             },
         }
 
         if intervention_type not in interventions:
             intervention_type = "moderate"
-
         config = interventions[intervention_type]
-        df = self.grid_valid
 
-        # Find cells within radius (approximate using lat/lon degrees)
-        # 1 degree lat ≈ 111,000m, 1 degree lon ≈ 82,000m at Chicago's latitude
+        df = self.grid_valid
         lat_range = radius_m / 111000
         lon_range = radius_m / 82000
 
         mask = (
-            (df["lat"] >= lat - lat_range) &
-            (df["lat"] <= lat + lat_range) &
-            (df["lon"] >= lon - lon_range) &
-            (df["lon"] <= lon + lon_range)
+            (df["lat"] >= lat - lat_range) & (df["lat"] <= lat + lat_range) &
+            (df["lon"] >= lon - lon_range) & (df["lon"] <= lon + lon_range)
         )
-
         affected = df[mask].copy()
 
         if len(affected) == 0:
             return {"error": "No grid cells found in this area"}
 
-        # Current state
-        before_temp = float(affected["mean_lst_f"].mean())
-        before_pred = float(self.model.predict(affected[self.features]).mean())
-
-        # Apply intervention
-        X_modified = affected[self.features].copy()
-
-        if "ndvi" in self.features:
-            X_modified["ndvi"] = np.clip(X_modified["ndvi"] + config["ndvi_add"], -1, 1)
-
-        if "impervious_pct" in self.features:
-            X_modified["impervious_pct"] = np.clip(
-                X_modified["impervious_pct"] - config["impervious_reduce"], 0, 100
-            )
-
-        if "park_area_pct" in self.features:
-            X_modified["park_area_pct"] = np.clip(
-                X_modified["park_area_pct"] + config["park_area_add"], 0, 1
-            )
-
-        if "distance_to_park_m" in self.features:
-            X_modified["distance_to_park_m"] = (
-                X_modified["distance_to_park_m"] * config["park_dist_factor"]
-            )
-
-        # Predict after intervention
-        after_pred = float(self.model.predict(X_modified).mean())
-        cooling = before_pred - after_pred
-
-        # Per-cell results for map visualization
         before_preds = self.model.predict(affected[self.features])
-        after_preds = self.model.predict(X_modified)
+        before_avg = float(before_preds.mean())
+
+        X_mod = affected[self.features].copy()
+        if "ndvi" in self.features:
+            X_mod["ndvi"] = np.clip(X_mod["ndvi"] + config["ndvi_add"], -1, 1)
+        if "impervious_pct" in self.features:
+            X_mod["impervious_pct"] = np.clip(X_mod["impervious_pct"] - config["impervious_reduce"], 0, 100)
+        if "park_area_pct" in self.features:
+            X_mod["park_area_pct"] = np.clip(X_mod["park_area_pct"] + config["park_area_add"], 0, 1)
+        if "distance_to_park_m" in self.features:
+            X_mod["distance_to_park_m"] = X_mod["distance_to_park_m"] * config["park_dist_factor"]
+
+        after_preds = self.model.predict(X_mod)
+        after_avg = float(after_preds.mean())
+        cooling = before_avg - after_avg
+
         cell_results = []
         for i, (_, row) in enumerate(affected.iterrows()):
             cell_results.append({
@@ -291,49 +362,44 @@ class HeatModel:
             "center": {"lat": lat, "lon": lon},
             "radius_m": radius_m,
             "cells_affected": len(affected),
-            "before_avg_temp_f": round(before_pred, 1),
-            "after_avg_temp_f": round(after_pred, 1),
+            "before_avg_temp_f": round(before_avg, 1),
+            "after_avg_temp_f": round(after_avg, 1),
             "avg_cooling_f": round(cooling, 1),
             "max_cooling_f": round(float((before_preds - after_preds).max()), 1),
             "cells": cell_results,
         }
 
-    def get_city_stats(self):
-        """Get city-wide summary statistics."""
-        df = self.grid_valid
+    # ============================================================
+    # CITY STATS
+    # ============================================================
 
+    def get_city_stats(self):
+        df = self.grid_valid
         risk_counts = df["heat_risk"].value_counts().to_dict()
         total = len(df)
 
         return {
-            "total_cells": total,
+            "total_cells": int(total),
             "avg_temp_f": round(float(df["mean_lst_f"].mean()), 1),
             "min_temp_f": round(float(df["mean_lst_f"].min()), 1),
             "max_temp_f": round(float(df["mean_lst_f"].max()), 1),
             "avg_ndvi": round(float(df["ndvi"].mean()), 3),
             "avg_impervious_pct": round(float(df["impervious_pct"].mean()), 1),
             "heat_risk_distribution": {
-                risk: {"count": int(count), "pct": round(count / total * 100, 1)}
+                str(risk): {"count": int(count), "pct": round(int(count) / total * 100, 1)}
                 for risk, count in risk_counts.items()
             },
-            "model_info": {
-                "type": self.metadata.get("model_type", "unknown") if self.metadata else "unknown",
-                "features": len(self.features),
-                "test_mae_f": self.metadata.get("metrics", {}).get("test", {}).get("mae", None) if self.metadata else None,
-            }
         }
 
-    def get_neighborhood_comparison(self, neighborhoods):
-        """
-        Compare stats across neighborhoods.
-        neighborhoods: list of dicts with name, lat, lon, radius_m
-        """
-        results = []
+    # ============================================================
+    # NEIGHBORHOOD COMPARISON
+    # ============================================================
 
+    def get_neighborhood_comparison(self, neighborhoods):
+        results = []
         for hood in neighborhoods:
             lat, lon = hood["lat"], hood["lon"]
             radius_m = hood.get("radius_m", 1000)
-
             lat_range = radius_m / 111000
             lon_range = radius_m / 82000
 
@@ -343,15 +409,13 @@ class HeatModel:
                 (self.grid_valid["lon"] >= lon - lon_range) &
                 (self.grid_valid["lon"] <= lon + lon_range)
             )
-
             cells = self.grid_valid[mask]
-
             if len(cells) == 0:
                 continue
 
             results.append({
                 "name": hood["name"],
-                "cells": len(cells),
+                "cells": int(len(cells)),
                 "avg_temp_f": round(float(cells["mean_lst_f"].mean()), 1),
                 "avg_ndvi": round(float(cells["ndvi"].mean()), 3),
                 "avg_impervious_pct": round(float(cells["impervious_pct"].mean()), 1),

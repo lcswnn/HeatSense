@@ -420,6 +420,12 @@ body {
   background: #0a0a0a;
 }
 
+/* Smooth interpolation for canvas heat overlay — blends cells into continuous surface */
+.heat-overlay-crisp,
+.heat-overlay-img {
+  image-rendering: auto;
+}
+
 .leaflet-control-zoom {
   border: none !important;
 }

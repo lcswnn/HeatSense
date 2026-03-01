@@ -1,40 +1,25 @@
 """
 TomorrowLand Heat — FastAPI Backend
 ====================================
-Serves the heat model predictions and grid data to the React frontend.
-
-Endpoints:
-  GET  /api/health              — Health check
-  GET  /api/stats               — City-wide summary statistics
-  GET  /api/grid                — Grid data (with optional bbox filter)
-  GET  /api/cell                — Detailed info for a specific location
-  POST /api/simulate            — Run intervention simulation
-  POST /api/compare             — Compare two neighborhoods
+Serves heat model predictions, grid data, and heat map images.
 
 Usage:
   cd api
+  pip install fastapi uvicorn pillow
   uvicorn main:app --reload --port 8000
-
-Then visit http://localhost:8000/docs for interactive API documentation.
 """
 
 import os
 import sys
+import time
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
-import time
 
-# Add parent directory to path so we can find model/data directories
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from heat_model import HeatModel
-
-
-# ============================================================
-# APP SETUP
-# ============================================================
 
 app = FastAPI(
     title="TomorrowLand Heat API",
@@ -42,21 +27,18 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow frontend to talk to backend during development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://localhost:3000",   # Alternative
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load model on startup
 model: HeatModel = None
+
+# Cache generated heat map images
+heatmap_cache = {}
 
 
 @app.on_event("startup")
@@ -65,7 +47,6 @@ def load_model():
     print("\n  Loading TomorrowLand Heat model...")
     start = time.time()
 
-    # Resolve paths relative to api/ directory
     api_dir = os.path.dirname(os.path.abspath(__file__))
     project_dir = os.path.dirname(api_dir)
 
@@ -74,21 +55,27 @@ def load_model():
         grid_path=os.path.join(project_dir, "data", "grid", "chicago_grid.csv"),
     )
 
+    # Pre-generate heat map images for each layer
+    print("  Generating heat map images...")
+    for layer_name in ["temperature", "risk", "ndvi"]:
+        png_bytes, bounds = model.generate_heatmap_png(layer=layer_name)
+        heatmap_cache[layer_name] = {"png": png_bytes, "bounds": bounds}
+        print(f"    {layer_name}: {len(png_bytes) / 1024:.0f} KB")
+
     elapsed = time.time() - start
     print(f"  Model loaded in {elapsed:.1f}s")
-    print(f"  Ready to serve predictions!\n")
+    print(f"  Ready to serve!\n")
 
 
 # ============================================================
-# REQUEST/RESPONSE MODELS
+# Request models
 # ============================================================
 
 class SimulationRequest(BaseModel):
     lat: float
     lon: float
     radius_m: float = 500
-    intervention_type: str = "moderate"  # light, moderate, heavy
-
+    intervention_type: str = "moderate"
 
 class Neighborhood(BaseModel):
     name: str
@@ -96,92 +83,76 @@ class Neighborhood(BaseModel):
     lon: float
     radius_m: float = 1000
 
-
 class CompareRequest(BaseModel):
     neighborhoods: list[Neighborhood]
 
 
 # ============================================================
-# ENDPOINTS
+# Endpoints
 # ============================================================
 
 @app.get("/api/health")
 def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "model_loaded": model is not None,
-        "grid_cells": len(model.grid_valid) if model else 0,
-    }
+    return {"status": "healthy", "model_loaded": model is not None}
 
 
 @app.get("/api/stats")
 def get_city_stats():
-    """Get city-wide summary statistics."""
     return model.get_city_stats()
+
+
+@app.get("/api/heatmap/{layer}.png")
+def get_heatmap_image(layer: str):
+    """
+    Serve a pre-rendered heat map PNG image.
+    Layers: temperature, risk, ndvi
+    """
+    if layer not in heatmap_cache:
+        return Response(content="Invalid layer", status_code=400)
+
+    return Response(
+        content=heatmap_cache[layer]["png"],
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/api/heatmap/{layer}/bounds")
+def get_heatmap_bounds(layer: str):
+    """Get the geographic bounds for a heat map image overlay."""
+    if layer not in heatmap_cache:
+        return {"error": "Invalid layer"}
+    return heatmap_cache[layer]["bounds"]
 
 
 @app.get("/api/grid")
 def get_grid(
-    west: Optional[float] = Query(None, description="Western bound longitude"),
-    south: Optional[float] = Query(None, description="Southern bound latitude"),
-    east: Optional[float] = Query(None, description="Eastern bound longitude"),
-    north: Optional[float] = Query(None, description="Northern bound latitude"),
-    downsample: Optional[int] = Query(None, description="Return every Nth cell"),
+    west: Optional[float] = Query(None),
+    south: Optional[float] = Query(None),
+    east: Optional[float] = Query(None),
+    north: Optional[float] = Query(None),
+    downsample: Optional[int] = Query(None),
 ):
-    """
-    Get grid data, optionally filtered to a bounding box.
-    Use downsample parameter for zoomed-out views to reduce payload size.
-
-    Example: /api/grid?west=-87.8&south=41.8&east=-87.6&north=41.9
-    """
     bbox = None
     if all(v is not None for v in [west, south, east, north]):
         bbox = {"west": west, "south": south, "east": east, "north": north}
 
     data = model.get_grid_data(bbox=bbox, downsample=downsample)
-
-    return {
-        "count": len(data),
-        "bbox": bbox,
-        "cells": data,
-    }
+    return {"count": len(data), "bbox": bbox, "cells": data}
 
 
 @app.get("/api/cell")
 def get_cell_detail(
-    lat: float = Query(..., description="Latitude"),
-    lon: float = Query(..., description="Longitude"),
+    lat: float = Query(...),
+    lon: float = Query(...),
 ):
-    """
-    Get detailed information for the grid cell nearest to a lat/lon point.
-
-    Example: /api/cell?lat=41.85&lon=-87.75
-    """
     return model.get_cell_detail(lat, lon)
 
 
 @app.post("/api/simulate")
 def simulate_intervention(request: SimulationRequest):
-    """
-    Simulate a green infrastructure intervention.
-
-    Intervention types:
-    - "light": Street trees along main roads
-    - "moderate": Pocket parks + tree planting
-    - "heavy": Major green infrastructure (parks, green roofs, urban forest)
-
-    Example body:
-    {
-        "lat": 41.85,
-        "lon": -87.72,
-        "radius_m": 500,
-        "intervention_type": "moderate"
-    }
-    """
     return model.simulate_intervention(
-        lat=request.lat,
-        lon=request.lon,
+        lat=request.lat, lon=request.lon,
         radius_m=request.radius_m,
         intervention_type=request.intervention_type,
     )
@@ -189,29 +160,13 @@ def simulate_intervention(request: SimulationRequest):
 
 @app.post("/api/compare")
 def compare_neighborhoods(request: CompareRequest):
-    """
-    Compare statistics across multiple neighborhoods.
-
-    Example body:
-    {
-        "neighborhoods": [
-            {"name": "Englewood", "lat": 41.7798, "lon": -87.6456, "radius_m": 1000},
-            {"name": "Lincoln Park", "lat": 41.9214, "lon": -87.6513, "radius_m": 1000}
-        ]
-    }
-    """
     hoods = [{"name": n.name, "lat": n.lat, "lon": n.lon, "radius_m": n.radius_m}
              for n in request.neighborhoods]
     return model.get_neighborhood_comparison(hoods)
 
 
-# ============================================================
-# PREDEFINED NEIGHBORHOOD DATA
-# ============================================================
-
 @app.get("/api/neighborhoods")
 def get_neighborhoods():
-    """Get list of predefined Chicago neighborhoods with coordinates."""
     return [
         {"name": "Pilsen", "lat": 41.8484, "lon": -87.6564},
         {"name": "Englewood", "lat": 41.7798, "lon": -87.6456},

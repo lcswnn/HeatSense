@@ -1,138 +1,135 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { MapContainer, TileLayer, useMap, Rectangle, useMapEvents } from 'react-leaflet'
-import L from 'leaflet'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { MapContainer, TileLayer, ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
 import SidePanel from './components/SidePanel'
 import SimulatePanel from './components/SimulatePanel'
 import ComparePanel from './components/ComparePanel'
 
 const API_BASE = '/api'
-
-// Chicago center
 const CHICAGO_CENTER = [41.85, -87.72]
-const CHICAGO_BOUNDS = [
-  [41.6445, -87.9401],
-  [42.023, -87.5241],
-]
 
-// Color scale for temperature
-function tempToColor(temp, opacity = 0.7) {
-  if (temp == null) return `rgba(128,128,128,${opacity})`
-  if (temp >= 115) return `rgba(139,0,0,${opacity})`
-  if (temp >= 110) return `rgba(192,57,43,${opacity})`
-  if (temp >= 105) return `rgba(231,76,60,${opacity})`
-  if (temp >= 100) return `rgba(230,126,34,${opacity})`
-  if (temp >= 95) return `rgba(241,196,15,${opacity})`
-  if (temp >= 90) return `rgba(243,156,18,${opacity})`
-  if (temp >= 85) return `rgba(52,152,219,${opacity})`
-  return `rgba(41,128,185,${opacity})`
-}
+// ============================================================
+// Map click handler
+// ============================================================
 
-function riskToColor(risk, opacity = 0.7) {
-  const colors = {
-    extreme: `rgba(139,0,0,${opacity})`,
-    high: `rgba(231,76,60,${opacity})`,
-    moderate: `rgba(230,126,34,${opacity})`,
-    low: `rgba(52,152,219,${opacity})`,
-    no_data: `rgba(128,128,128,0.2)`,
-  }
-  return colors[risk] || colors.no_data
-}
-
-function ndviToColor(ndvi, opacity = 0.7) {
-  if (ndvi == null) return `rgba(128,128,128,${opacity})`
-  if (ndvi >= 0.6) return `rgba(0,100,0,${opacity})`
-  if (ndvi >= 0.4) return `rgba(34,139,34,${opacity})`
-  if (ndvi >= 0.3) return `rgba(46,204,113,${opacity})`
-  if (ndvi >= 0.2) return `rgba(144,238,144,${opacity})`
-  if (ndvi >= 0.1) return `rgba(222,184,135,${opacity})`
-  return `rgba(160,82,45,${opacity})`
-}
-
-// Grid layer component that renders heat map cells
-function HeatGridLayer({ cells, layer, onCellClick }) {
-  const map = useMap()
-
-  useEffect(() => {
-    if (!cells || cells.length === 0) return
-
-    const cellSize = 0.001 // ~100m in degrees
-
-    const rectangles = cells.map(cell => {
-      let color
-      if (layer === 'temperature') {
-        color = tempToColor(cell.mean_lst_f)
-      } else if (layer === 'risk') {
-        color = riskToColor(cell.heat_risk)
-      } else if (layer === 'ndvi') {
-        color = ndviToColor(cell.ndvi)
-      } else {
-        color = tempToColor(cell.mean_lst_f)
-      }
-
-      const bounds = [
-        [cell.lat - cellSize / 2, cell.lon - cellSize / 2],
-        [cell.lat + cellSize / 2, cell.lon + cellSize / 2],
-      ]
-
-      const rect = L.rectangle(bounds, {
-        color: 'transparent',
-        fillColor: color,
-        fillOpacity: 1,
-        weight: 0,
-      })
-
-      rect.on('click', () => onCellClick(cell))
-      return rect
-    })
-
-    const layerGroup = L.layerGroup(rectangles)
-    layerGroup.addTo(map)
-
-    return () => {
-      map.removeLayer(layerGroup)
-    }
-  }, [cells, layer, map, onCellClick])
-
-  return null
-}
-
-// Click handler component
 function MapClickHandler({ onMapClick }) {
   useMapEvents({
-    click: (e) => {
-      onMapClick(e.latlng.lat, e.latlng.lng)
-    },
+    click: (e) => onMapClick(e.latlng.lat, e.latlng.lng),
   })
   return null
 }
 
+// ============================================================
+// Legend
+// ============================================================
+
+function MapLegend({ layer }) {
+  const configs = {
+    temperature: {
+      title: 'Surface Temperature',
+      stops: [
+        { color: '#1e46a0', label: '< 75°F' },
+        { color: '#3498db', label: '80' },
+        { color: '#46aa8c', label: '85' },
+        { color: '#c8d232', label: '92' },
+        { color: '#f1c40f', label: '95' },
+        { color: '#f0a01e', label: '98' },
+        { color: '#e67828', label: '101' },
+        { color: '#e74c3c', label: '105' },
+        { color: '#b41e1e', label: '110' },
+        { color: '#800000', label: '115+' },
+      ],
+    },
+    risk: {
+      title: 'Heat Risk Level',
+      stops: [
+        { color: '#3498db', label: 'Low' },
+        { color: '#e67e22', label: 'Moderate' },
+        { color: '#e74c3c', label: 'High' },
+        { color: '#8b0000', label: 'Extreme' },
+      ],
+    },
+    ndvi: {
+      title: 'Vegetation Density (NDVI)',
+      stops: [
+        { color: '#a0522d', label: 'Bare' },
+        { color: '#c89646', label: 'Low' },
+        { color: '#b4be50', label: 'Med' },
+        { color: '#64b45a', label: 'Good' },
+        { color: '#147814', label: 'Dense' },
+        { color: '#005a00', label: 'Forest' },
+      ],
+    },
+  }
+
+  const cfg = configs[layer] || configs.temperature
+
+  return (
+    <div style={{
+      position: 'absolute', bottom: 24, right: 16, zIndex: 1000,
+      background: 'rgba(18,18,22,0.92)', backdropFilter: 'blur(12px)',
+      borderRadius: 8, padding: '10px 14px',
+      border: '1px solid rgba(255,255,255,0.08)',
+    }}>
+      <div style={{ fontSize: 11, color: '#999', marginBottom: 6, fontWeight: 600 }}>
+        {cfg.title}
+      </div>
+      <div style={{
+        display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden',
+        background: `linear-gradient(to right, ${cfg.stops.map(s => s.color).join(', ')})`,
+        width: cfg.stops.length * 36,
+      }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+        {cfg.stops.map((stop, i) => (
+          <span key={i} style={{ fontSize: 9, color: '#666' }}>{stop.label}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// Main App
+// ============================================================
+
 export default function App() {
-  const [mode, setMode] = useState('explore') // explore, compare, simulate
+  const [mode, setMode] = useState('explore')
   const [layer, setLayer] = useState('temperature')
-  const [cells, setCells] = useState([])
   const [selectedCell, setSelectedCell] = useState(null)
   const [cityStats, setCityStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [opacity, setOpacity] = useState(0.78)
 
-  // Load initial data
+  // Heat map image URLs and bounds per layer
+  const [heatmapUrls, setHeatmapUrls] = useState({})
+  const [heatmapBounds, setHeatmapBounds] = useState({})
+
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true)
 
-        // Fetch city stats
+        // Load city stats
         const statsRes = await fetch(`${API_BASE}/stats`)
-        if (!statsRes.ok) throw new Error('Failed to load stats')
-        const stats = await statsRes.json()
-        setCityStats(stats)
+        if (!statsRes.ok) throw new Error('Failed to load city stats')
+        setCityStats(await statsRes.json())
 
-        // Fetch grid data (downsampled for initial load)
-        const gridRes = await fetch(`${API_BASE}/grid?downsample=3`)
-        if (!gridRes.ok) throw new Error('Failed to load grid')
-        const gridData = await gridRes.json()
-        setCells(gridData.cells)
+        // Load heat map bounds and image URLs for each layer
+        const layers = ['temperature', 'risk', 'ndvi']
+        const boundsMap = {}
+        const urlsMap = {}
 
+        for (const l of layers) {
+          const boundsRes = await fetch(`${API_BASE}/heatmap/${l}/bounds`)
+          if (boundsRes.ok) {
+            boundsMap[l] = await boundsRes.json()
+            // The image URL — browser will fetch this as a regular image
+            urlsMap[l] = `${API_BASE}/heatmap/${l}.png`
+          }
+        }
+
+        setHeatmapBounds(boundsMap)
+        setHeatmapUrls(urlsMap)
         setLoading(false)
       } catch (err) {
         console.error('Load error:', err)
@@ -143,38 +140,25 @@ export default function App() {
     loadData()
   }, [])
 
-  // Handle cell click
-  const handleCellClick = useCallback(async (cell) => {
-    try {
-      const res = await fetch(`${API_BASE}/cell?lat=${cell.lat}&lon=${cell.lon}`)
-      if (res.ok) {
-        const detail = await res.json()
-        setSelectedCell(detail)
-      }
-    } catch (err) {
-      console.error('Cell detail error:', err)
-    }
-  }, [])
-
-  // Handle map click (for areas without pre-loaded cells)
   const handleMapClick = useCallback(async (lat, lon) => {
     try {
       const res = await fetch(`${API_BASE}/cell?lat=${lat}&lon=${lon}`)
       if (res.ok) {
         const detail = await res.json()
         setSelectedCell(detail)
+        if (mode !== 'simulate') setMode('explore')
       }
     } catch (err) {
-      console.error('Map click error:', err)
+      console.error('Cell detail error:', err)
     }
-  }, [])
+  }, [mode])
 
   if (loading) {
     return (
       <div className="loading-overlay">
         <div className="spinner" />
         <h1>TomorrowLand Heat</h1>
-        <p>Loading Chicago heat data...</p>
+        <p>Loading Chicago urban heat data...</p>
       </div>
     )
   }
@@ -184,41 +168,43 @@ export default function App() {
       <div className="loading-overlay">
         <h1>Connection Error</h1>
         <p style={{ color: '#e74c3c', marginBottom: 12 }}>{error}</p>
-        <p>Make sure the API server is running:</p>
-        <p style={{ color: '#888', fontFamily: 'monospace', marginTop: 8 }}>
-          cd api && uvicorn main:app --reload --port 8000
-        </p>
+        <p style={{ color: '#888' }}>Make sure the API server is running:</p>
+        <code style={{
+          display: 'block', marginTop: 12, padding: 12,
+          background: 'rgba(255,255,255,0.05)', borderRadius: 6,
+          color: '#ccc', fontSize: 13
+        }}>
+          cd api && pip install pillow && uvicorn main:app --reload --port 8000
+        </code>
       </div>
     )
   }
 
+  // Current layer bounds for the image overlay
+  const bounds = heatmapBounds[layer]
+  const imageUrl = heatmapUrls[layer]
+  const leafletBounds = bounds
+    ? [[bounds.south, bounds.west], [bounds.north, bounds.east]]
+    : null
+
   return (
     <div className="app-container">
-      {/* Top Bar */}
+      {/* Top bar */}
       <div className="top-bar">
         <div className="logo">
           <h1>TomorrowLand Heat</h1>
           <span>Urban Heat Island Mapper — Chicago</span>
         </div>
         <div className="mode-tabs">
-          <button
-            className={`mode-tab ${mode === 'explore' ? 'active' : ''}`}
-            onClick={() => setMode('explore')}
-          >
-            Explore
-          </button>
-          <button
-            className={`mode-tab ${mode === 'compare' ? 'active' : ''}`}
-            onClick={() => setMode('compare')}
-          >
-            Compare
-          </button>
-          <button
-            className={`mode-tab ${mode === 'simulate' ? 'active' : ''}`}
-            onClick={() => setMode('simulate')}
-          >
-            Simulate
-          </button>
+          {['explore', 'compare', 'simulate'].map(m => (
+            <button
+              key={m}
+              className={`mode-tab ${mode === m ? 'active' : ''}`}
+              onClick={() => setMode(m)}
+            >
+              {m === 'explore' ? '🔍 Explore' : m === 'compare' ? '⚖️ Compare' : '🌳 Simulate'}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -229,58 +215,78 @@ export default function App() {
           zoom={11}
           style={{ height: '100%', width: '100%' }}
           zoomControl={true}
-          maxBounds={CHICAGO_BOUNDS}
           minZoom={10}
+          maxZoom={16}
         >
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
+            attribution='&copy; OSM &copy; CARTO'
           />
-          <HeatGridLayer
-            cells={cells}
-            layer={layer}
-            onCellClick={handleCellClick}
+
+          {/* Heat map image overlay */}
+          {imageUrl && leafletBounds && (
+            <ImageOverlay
+              url={imageUrl}
+              bounds={leafletBounds}
+              opacity={opacity}
+              className="heat-overlay-img"
+            />
+          )}
+
+          {/* Labels on top of heat overlay */}
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png"
+            pane="overlayPane"
           />
+
           <MapClickHandler onMapClick={handleMapClick} />
         </MapContainer>
       </div>
 
-      {/* Layer toggles */}
+      {/* Layer controls */}
       <div className="layer-toggles">
         <button
           className={`layer-btn ${layer === 'temperature' ? 'active' : ''}`}
           onClick={() => setLayer('temperature')}
         >
-          Temperature
+          🌡️ Temperature
         </button>
         <button
           className={`layer-btn ${layer === 'risk' ? 'active' : ''}`}
           onClick={() => setLayer('risk')}
         >
-          Heat Risk
+          ⚠️ Heat Risk
         </button>
         <button
           className={`layer-btn ${layer === 'ndvi' ? 'active' : ''}`}
           onClick={() => setLayer('ndvi')}
         >
-          Vegetation
+          🌿 Vegetation
         </button>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8,
+          padding: '4px 10px', borderRadius: 20,
+          background: 'rgba(18,18,22,0.85)', border: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <span style={{ fontSize: 11, color: '#888' }}>Opacity</span>
+          <input
+            type="range" min={0.15} max={1} step={0.05}
+            value={opacity}
+            onChange={(e) => setOpacity(Number(e.target.value))}
+            style={{ width: 70, accentColor: '#e74c3c' }}
+          />
+        </div>
       </div>
 
-      {/* Side Panel — changes based on mode */}
+      {/* Legend */}
+      <MapLegend layer={layer} />
+
+      {/* Side panels */}
       {mode === 'explore' && (
-        <SidePanel
-          cell={selectedCell}
-          cityStats={cityStats}
-          onClose={() => setSelectedCell(null)}
-        />
+        <SidePanel cell={selectedCell} cityStats={cityStats} onClose={() => setSelectedCell(null)} />
       )}
-      {mode === 'compare' && (
-        <ComparePanel />
-      )}
-      {mode === 'simulate' && (
-        <SimulatePanel selectedCell={selectedCell} />
-      )}
+      {mode === 'compare' && <ComparePanel />}
+      {mode === 'simulate' && <SimulatePanel selectedCell={selectedCell} />}
     </div>
   )
 }
