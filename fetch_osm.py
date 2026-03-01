@@ -4,11 +4,7 @@ TomorrowLand Heat — Step 3: Fetch OpenStreetMap Urban Data
 This script pulls building footprints, road networks, parks, and water bodies
 from OpenStreetMap for Chicago using the OSMnx library.
 
-These features are critical for the heat model because:
-  - Building density and height create "urban canyon" effects that trap heat
-  - Road density correlates with impervious surface and vehicle heat output
-  - Parks and water bodies are natural cooling zones
-  - Distance to the nearest park/water is a strong predictor of local temperature
+v3 — Splits Chicago into quadrants for building fetches to avoid timeout.
 
 Prerequisites:
   - pip install -r requirements.txt
@@ -29,6 +25,7 @@ import os
 import yaml
 import numpy as np
 import geopandas as gpd
+import pandas as pd
 import matplotlib.pyplot as plt
 from shapely.geometry import box
 from datetime import datetime
@@ -43,7 +40,6 @@ except ImportError:
     HAS_OSMNX = False
     print("⚠ osmnx not installed. Install with: pip install osmnx")
 
-# Alternative: direct Overpass API queries
 import requests
 import json
 import time
@@ -54,21 +50,14 @@ import time
 # ============================================================
 
 def timestamp():
-    """Return current timestamp string."""
     return datetime.now().strftime("%H:%M:%S")
 
-
 def log(msg):
-    """Print a timestamped log message."""
     print(f"  [{timestamp()}] {msg}")
-    sys.stdout.flush()  # Force immediate output
+    sys.stdout.flush()
 
 
 class ProgressMonitor:
-    """
-    Background thread that prints a heartbeat message every N seconds
-    so you know the script isn't stuck.
-    """
     def __init__(self, task_name, interval=30):
         self.task_name = task_name
         self.interval = interval
@@ -108,135 +97,230 @@ def load_config(config_path="config/chicago.yaml"):
         return yaml.safe_load(f)
 
 
+def split_bbox_into_grid(bbox, rows=3, cols=3):
+    """
+    Split a bounding box into a grid of smaller bounding boxes.
+    This prevents Overpass API timeouts on large areas.
+    """
+    west, south, east, north = bbox["west"], bbox["south"], bbox["east"], bbox["north"]
+
+    lon_step = (east - west) / cols
+    lat_step = (north - south) / rows
+
+    quadrants = []
+    for r in range(rows):
+        for c in range(cols):
+            q = {
+                "west": west + c * lon_step,
+                "south": south + r * lat_step,
+                "east": west + (c + 1) * lon_step,
+                "north": south + (r + 1) * lat_step,
+            }
+            quadrants.append(q)
+
+    return quadrants
+
+
 # ============================================================
-# OVERPASS API (Fallback if OSMnx has issues)
+# OVERPASS API (Direct queries — more reliable than OSMnx for large areas)
 # ============================================================
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
-def overpass_query(query, max_retries=3):
+def overpass_query(query, max_retries=3, timeout=180):
     """Execute an Overpass API query with retry logic."""
     for attempt in range(max_retries):
         try:
-            log(f"Overpass API request (attempt {attempt + 1}/{max_retries})...")
-            response = requests.get(
+            log(f"  Overpass request (attempt {attempt + 1}/{max_retries})...")
+            response = requests.post(
                 OVERPASS_URL,
-                params={"data": query},
-                timeout=180
+                data={"data": query},
+                timeout=timeout
             )
             if response.status_code == 200:
-                log(f"Overpass returned {len(response.content) / 1024 / 1024:.1f} MB")
+                size_mb = len(response.content) / 1024 / 1024
+                log(f"  Response: {size_mb:.1f} MB")
                 return response.json()
             elif response.status_code == 429:
                 wait = 30 * (attempt + 1)
-                log(f"Rate limited, waiting {wait}s...")
+                log(f"  Rate limited, waiting {wait}s...")
                 time.sleep(wait)
+            elif response.status_code == 504:
+                log(f"  Gateway timeout — query too large or server busy")
+                time.sleep(15)
             else:
-                log(f"Overpass returned status {response.status_code}")
+                log(f"  HTTP {response.status_code}")
                 time.sleep(10)
         except requests.exceptions.Timeout:
-            log(f"Timeout on attempt {attempt + 1}, retrying...")
-            time.sleep(10)
+            log(f"  Request timeout on attempt {attempt + 1}")
+            time.sleep(15)
+        except requests.exceptions.ConnectionError:
+            log(f"  Connection error on attempt {attempt + 1}")
+            time.sleep(15)
 
-    log("⚠ Overpass API failed after retries")
+    log("  ⚠ Overpass API failed after all retries")
     return None
 
 
+def overpass_to_geodataframe(result, geometry_types=None):
+    """
+    Convert Overpass JSON result to a GeoDataFrame.
+    Handles nodes, ways, and relations.
+    """
+    from shapely.geometry import Point, Polygon, LineString
+
+    if result is None or "elements" not in result:
+        return gpd.GeoDataFrame()
+
+    elements = result["elements"]
+
+    # Build node lookup
+    nodes = {}
+    for el in elements:
+        if el["type"] == "node":
+            nodes[el["id"]] = (el["lon"], el["lat"])
+
+    # Build geometries from ways
+    features = []
+    for el in elements:
+        if el["type"] == "way" and "nodes" in el:
+            coords = [nodes[nid] for nid in el["nodes"] if nid in nodes]
+            if len(coords) < 3:
+                continue
+            try:
+                # Close the polygon if needed
+                if coords[0] != coords[-1]:
+                    coords.append(coords[0])
+                geom = Polygon(coords)
+                if geom.is_valid and not geom.is_empty:
+                    props = el.get("tags", {})
+                    props["geometry"] = geom
+                    features.append(props)
+            except Exception:
+                continue
+
+    if not features:
+        return gpd.GeoDataFrame()
+
+    gdf = gpd.GeoDataFrame(features, crs="EPSG:4326")
+    return gdf
+
+
 # ============================================================
-# BUILDING DATA
+# BUILDING DATA — QUADRANT APPROACH
 # ============================================================
 
-def fetch_buildings_osmnx(config):
-    """Fetch building footprints using OSMnx."""
-    bbox = config["bbox"]
+def fetch_buildings_quadrant(bbox_quad, quad_name):
+    """Fetch buildings for a single quadrant via direct Overpass query."""
+    s, w, n, e = bbox_quad["south"], bbox_quad["west"], bbox_quad["north"], bbox_quad["east"]
 
-    monitor = ProgressMonitor("building footprint download", interval=30)
-    monitor.start()
-
-    try:
-        ox.settings.max_query_area_size = 50_000_000_000_000  # Force 50 trillion right before query
-        log("Sending Overpass query for buildings...")
-        log(f"Bounding box: W={bbox['west']}, S={bbox['south']}, E={bbox['east']}, N={bbox['north']}")
-
-        # OSMnx expects (north, south, east, west)
-        buildings = ox.features_from_bbox(
-            bbox=(bbox["north"], bbox["south"], bbox["east"], bbox["west"]),
-            tags={"building": True}
-        )
-        log(f"Raw response: {len(buildings):,} features received")
-
-        # Keep only polygon geometries (skip nodes)
-        log("Filtering to polygon geometries...")
-        buildings = buildings[buildings.geometry.type.isin(["Polygon", "MultiPolygon"])].copy()
-        log(f"After filtering: {len(buildings):,} building polygons")
-
-        # Extract useful attributes
-        log("Extracting building attributes...")
-        cols_to_keep = ["geometry"]
-        if "building:levels" in buildings.columns:
-            buildings["levels"] = buildings["building:levels"].apply(safe_int)
-            cols_to_keep.append("levels")
-            levels_count = buildings["levels"].notna().sum()
-            log(f"  Found {levels_count:,} buildings with level data")
-        if "height" in buildings.columns:
-            buildings["height_m"] = buildings["height"].apply(safe_float)
-            cols_to_keep.append("height_m")
-            height_count = buildings["height_m"].notna().sum()
-            log(f"  Found {height_count:,} buildings with height data")
-        if "building" in buildings.columns:
-            buildings["building_type"] = buildings["building"]
-            cols_to_keep.append("building_type")
-
-        buildings = buildings[cols_to_keep].copy()
-
-        # Compute area
-        log("Computing building areas (projecting to UTM)...")
-        buildings_projected = buildings.to_crs(epsg=32616)  # UTM 16N for Chicago
-        buildings["area_m2"] = buildings_projected.geometry.area
-        log(f"  Total building footprint: {buildings['area_m2'].sum() / 1e6:.1f} km2")
-
-        # Estimate height from levels if actual height not available
-        if "height_m" not in buildings.columns:
-            buildings["height_m"] = np.nan
-        if "levels" in buildings.columns:
-            mask = buildings["height_m"].isna() & buildings["levels"].notna()
-            buildings.loc[mask, "height_m"] = buildings.loc[mask, "levels"] * 3.5
-            log(f"  Estimated heights for {mask.sum():,} buildings from level data")
-
-        log(f"✓ Fetched {len(buildings):,} building footprints")
-        return buildings
-
-    finally:
-        monitor.stop()
-
-
-def fetch_buildings_overpass(config):
-    """Fetch buildings via Overpass API (fallback)."""
-    bbox = config["bbox"]
     query = f"""
-    [out:json][timeout:120];
+    [out:json][timeout:180];
     (
-      way["building"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
-      relation["building"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
+      way["building"]({s},{w},{n},{e});
     );
     out body;
     >;
     out skel qt;
     """
-    log("Fetching buildings via Overpass API (fallback)...")
-    result = overpass_query(query)
+
+    log(f"Fetching {quad_name}...")
+    result = overpass_query(query, timeout=200)
 
     if result is None:
-        log("⚠ Could not fetch buildings")
+        log(f"⚠ {quad_name} failed")
         return gpd.GeoDataFrame()
 
-    log(f"✓ Received {len(result.get('elements', []))} elements from Overpass")
-    return result
+    gdf = overpass_to_geodataframe(result)
+    log(f"  {quad_name}: {len(gdf):,} buildings")
+    return gdf
+
+
+def fetch_buildings_by_quadrants(config, rows=3, cols=3):
+    """
+    Fetch buildings by splitting Chicago into a grid of smaller queries.
+    Each quadrant is fetched separately and then merged.
+    """
+    quadrants = split_bbox_into_grid(config["bbox"], rows=rows, cols=cols)
+    total = len(quadrants)
+
+    log(f"Splitting Chicago into {total} quadrants ({rows}x{cols})")
+    log(f"Each quadrant is ~1/{total}th of the city")
+
+    all_buildings = []
+
+    for i, quad in enumerate(quadrants):
+        quad_name = f"quadrant {i+1}/{total}"
+
+        monitor = ProgressMonitor(quad_name, interval=30)
+        monitor.start()
+        try:
+            gdf = fetch_buildings_quadrant(quad, quad_name)
+            if len(gdf) > 0:
+                all_buildings.append(gdf)
+        except Exception as e:
+            log(f"⚠ Error on {quad_name}: {e}")
+        finally:
+            monitor.stop()
+
+        # Brief pause between queries to be polite to the API
+        if i < total - 1:
+            log("  Pausing 5s before next quadrant...")
+            time.sleep(5)
+
+    if not all_buildings:
+        log("⚠ No buildings fetched from any quadrant")
+        return gpd.GeoDataFrame()
+
+    # Merge all quadrants
+    log("Merging all quadrants...")
+    buildings = pd.concat(all_buildings, ignore_index=True)
+
+    # Remove duplicates (buildings on quadrant borders may appear twice)
+    before = len(buildings)
+    buildings = buildings.drop_duplicates(subset=["geometry"])
+    dupes = before - len(buildings)
+    if dupes > 0:
+        log(f"  Removed {dupes:,} duplicate buildings on quadrant borders")
+
+    # Compute area
+    log("Computing building areas...")
+    buildings_projected = buildings.to_crs(epsg=32616)
+    buildings["area_m2"] = buildings_projected.geometry.area
+
+    # Extract height from tags
+    if "building:levels" in buildings.columns:
+        buildings["levels"] = buildings["building:levels"].apply(safe_int)
+    else:
+        buildings["levels"] = np.nan
+
+    if "height" in buildings.columns:
+        buildings["height_m"] = buildings["height"].apply(safe_float)
+    else:
+        buildings["height_m"] = np.nan
+
+    # Estimate height from levels where height is missing
+    mask = buildings["height_m"].isna() & buildings["levels"].notna()
+    buildings.loc[mask, "height_m"] = buildings.loc[mask, "levels"] * 3.5
+
+    # Keep only needed columns
+    keep_cols = ["geometry", "area_m2", "height_m"]
+    if "levels" in buildings.columns:
+        keep_cols.append("levels")
+    buildings = buildings[[c for c in keep_cols if c in buildings.columns]].copy()
+
+    log(f"✓ Total: {len(buildings):,} buildings fetched")
+    log(f"  Total footprint: {buildings['area_m2'].sum() / 1e6:.1f} km2")
+    heights = buildings["height_m"].dropna()
+    if len(heights) > 0:
+        log(f"  Avg height: {heights.mean():.1f} m ({len(heights):,} buildings with height data)")
+
+    return buildings
 
 
 # ============================================================
-# PARKS & GREEN SPACES
+# PARKS — OSMnx with fallback
 # ============================================================
 
 def fetch_parks(config):
@@ -244,11 +328,11 @@ def fetch_parks(config):
     bbox = config["bbox"]
 
     if HAS_OSMNX:
-        monitor = ProgressMonitor("parks and green spaces download", interval=20)
+        monitor = ProgressMonitor("parks and green spaces", interval=20)
         monitor.start()
         try:
-            ox.settings.max_query_area_size = 50_000_000_000_000  # Force 50 trillion right before query
-            log("Sending Overpass query for parks...")
+            ox.settings.max_query_area_size = 50_000_000_000_000
+            log("Fetching parks via OSMnx...")
             parks = ox.features_from_bbox(
                 bbox=(bbox["north"], bbox["south"], bbox["east"], bbox["west"]),
                 tags={
@@ -257,48 +341,45 @@ def fetch_parks(config):
                     "natural": ["wood", "grassland"],
                 }
             )
-            log(f"Raw response: {len(parks):,} features received")
-
+            log(f"Raw: {len(parks):,} features")
             parks = parks[parks.geometry.type.isin(["Polygon", "MultiPolygon"])].copy()
             parks = parks[["geometry"]].copy()
-            log(f"After filtering to polygons: {len(parks):,}")
 
-            # Compute area
-            log("Computing park areas...")
             parks_projected = parks.to_crs(epsg=32616)
             parks["area_m2"] = parks_projected.geometry.area
-
-            # Filter out tiny polygons (< 500 m2)
-            before = len(parks)
             parks = parks[parks["area_m2"] >= 500].copy()
-            log(f"Filtered out {before - len(parks):,} tiny polygons (< 500 m2)")
 
-            log(f"✓ Fetched {len(parks):,} parks and green spaces")
-            log(f"  Total park area: {parks['area_m2'].sum() / 1e6:.1f} km2")
+            log(f"✓ {len(parks):,} parks ({parks['area_m2'].sum() / 1e6:.1f} km2)")
             return parks
-
         except Exception as e:
-            log(f"⚠ OSMnx parks fetch failed: {e}")
+            log(f"⚠ OSMnx failed: {e}")
         finally:
             monitor.stop()
 
-    # Fallback: Overpass
+    # Fallback: direct Overpass
+    log("Trying direct Overpass for parks...")
+    s, w, n, e = bbox["south"], bbox["west"], bbox["north"], bbox["east"]
     query = f"""
-    [out:json][timeout:90];
+    [out:json][timeout:120];
     (
-      way["leisure"="park"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
-      way["landuse"="grass"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
-      way["landuse"="forest"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
-      relation["leisure"="park"]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
+      way["leisure"="park"]({s},{w},{n},{e});
+      way["landuse"="grass"]({s},{w},{n},{e});
+      way["landuse"="forest"]({s},{w},{n},{e});
+      way["leisure"="garden"]({s},{w},{n},{e});
+      relation["leisure"="park"]({s},{w},{n},{e});
     );
     out body;
     >;
     out skel qt;
     """
-    log("Fetching parks via Overpass API (fallback)...")
     result = overpass_query(query)
-    log(f"✓ Received park data from Overpass")
-    return result
+    gdf = overpass_to_geodataframe(result)
+    if len(gdf) > 0:
+        gdf_proj = gdf.to_crs(epsg=32616)
+        gdf["area_m2"] = gdf_proj.geometry.area
+        gdf = gdf[gdf["area_m2"] >= 500][["geometry", "area_m2"]].copy()
+    log(f"✓ {len(gdf):,} parks from Overpass")
+    return gdf
 
 
 # ============================================================
@@ -306,15 +387,15 @@ def fetch_parks(config):
 # ============================================================
 
 def fetch_water(config):
-    """Fetch water bodies (lakes, rivers, ponds)."""
+    """Fetch water bodies."""
     bbox = config["bbox"]
 
     if HAS_OSMNX:
-        monitor = ProgressMonitor("water bodies download", interval=20)
+        monitor = ProgressMonitor("water bodies", interval=20)
         monitor.start()
         try:
-            ox.settings.max_query_area_size = 50_000_000_000_000  # Force 50 trillion right before query
-            log("Sending Overpass query for water bodies...")
+            ox.settings.max_query_area_size = 50_000_000_000_000
+            log("Fetching water via OSMnx...")
             water = ox.features_from_bbox(
                 bbox=(bbox["north"], bbox["south"], bbox["east"], bbox["west"]),
                 tags={
@@ -323,58 +404,69 @@ def fetch_water(config):
                     "waterway": ["river", "stream", "canal"],
                 }
             )
-            log(f"Raw response: {len(water):,} features received")
-
+            log(f"Raw: {len(water):,} features")
             water = water[water.geometry.type.isin(
                 ["Polygon", "MultiPolygon", "LineString", "MultiLineString"]
             )].copy()
             water = water[["geometry"]].copy()
-            log(f"✓ Fetched {len(water):,} water features")
+            log(f"✓ {len(water):,} water features")
             return water
-
         except Exception as e:
-            log(f"⚠ OSMnx water fetch failed: {e}")
+            log(f"⚠ OSMnx failed: {e}")
         finally:
             monitor.stop()
 
-    log("Skipping water bodies (will use NDVI as proxy — water has negative NDVI)")
-    return gpd.GeoDataFrame()
+    # Fallback
+    log("Trying direct Overpass for water...")
+    s, w, n, e = bbox["south"], bbox["west"], bbox["north"], bbox["east"]
+    query = f"""
+    [out:json][timeout:120];
+    (
+      way["natural"="water"]({s},{w},{n},{e});
+      way["waterway"="river"]({s},{w},{n},{e});
+      way["waterway"="canal"]({s},{w},{n},{e});
+      relation["natural"="water"]({s},{w},{n},{e});
+    );
+    out body;
+    >;
+    out skel qt;
+    """
+    result = overpass_query(query)
+    gdf = overpass_to_geodataframe(result)
+    gdf = gdf[["geometry"]].copy() if len(gdf) > 0 else gdf
+    log(f"✓ {len(gdf):,} water features from Overpass")
+    return gdf
 
 
 # ============================================================
-# ROAD NETWORK
+# ROADS
 # ============================================================
 
 def fetch_roads(config):
-    """Fetch road network (drives heat from vehicles + impervious surface)."""
+    """Fetch road network."""
     bbox = config["bbox"]
 
     if HAS_OSMNX:
-        monitor = ProgressMonitor("road network download", interval=30)
+        monitor = ProgressMonitor("road network", interval=30)
         monitor.start()
         try:
-            ox.settings.max_query_area_size = 50_000_000_000_000  # Force 50 trillion right before query
-            log("Sending Overpass query for road network...")
-            # Get drivable road network
+            ox.settings.max_query_area_size = 50_000_000_000_000
+            log("Fetching roads via OSMnx...")
             G = ox.graph_from_bbox(
                 bbox=(bbox["north"], bbox["south"], bbox["east"], bbox["west"]),
                 network_type="drive"
             )
-            log(f"Graph received: {len(G.nodes):,} nodes, {len(G.edges):,} edges")
-
-            log("Converting graph to GeoDataFrame...")
+            log(f"Graph: {len(G.nodes):,} nodes, {len(G.edges):,} edges")
             roads = ox.graph_to_gdfs(G, nodes=False, edges=True)
             roads = roads[["geometry", "highway", "length"]].copy()
-            log(f"✓ Fetched {len(roads):,} road segments")
-            log(f"  Total road length: {roads['length'].sum() / 1000:.0f} km")
+            log(f"✓ {len(roads):,} road segments ({roads['length'].sum()/1000:.0f} km)")
             return roads
-
         except Exception as e:
-            log(f"⚠ OSMnx road fetch failed: {e}")
+            log(f"⚠ OSMnx failed: {e}")
         finally:
             monitor.stop()
 
-    log("Skipping roads (will use impervious surface % as proxy)")
+    log("Skipping roads (will use impervious surface as proxy)")
     return gpd.GeoDataFrame()
 
 
@@ -383,15 +475,12 @@ def fetch_roads(config):
 # ============================================================
 
 def safe_int(val):
-    """Safely convert a value to int."""
     try:
         return int(float(str(val)))
     except (ValueError, TypeError):
         return np.nan
 
-
 def safe_float(val):
-    """Safely convert a value to float, handling units like '10 m'."""
     try:
         if isinstance(val, str):
             val = val.replace("m", "").replace("ft", "").strip()
@@ -410,14 +499,11 @@ def save_geodata(gdf, filepath):
 
     if isinstance(gdf, gpd.GeoDataFrame) and len(gdf) > 0:
         log(f"Saving {filepath}...")
-
-        # Ensure CRS is WGS84
         if gdf.crs is None:
             gdf = gdf.set_crs(epsg=4326)
         else:
             gdf = gdf.to_crs(epsg=4326)
 
-        # Drop any non-serializable columns
         for col in gdf.columns:
             if col != "geometry":
                 try:
@@ -427,7 +513,7 @@ def save_geodata(gdf, filepath):
 
         gdf.to_file(filepath, driver="GeoJSON")
         file_size_mb = os.path.getsize(filepath) / 1024 / 1024
-        log(f"✓ Saved to {filepath} ({len(gdf):,} features, {file_size_mb:.1f} MB)")
+        log(f"✓ Saved {filepath} ({len(gdf):,} features, {file_size_mb:.1f} MB)")
     else:
         log(f"⚠ No data to save for {filepath}")
 
@@ -438,17 +524,14 @@ def save_geodata(gdf, filepath):
 
 def visualize_urban_features(buildings, parks, water, roads, config,
                              output_path="output/chicago_urban_features.png"):
-    """Visualize all urban features on a single map."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    log("Generating urban features visualization...")
+    log("Generating visualization...")
 
     fig, ax = plt.subplots(1, 1, figsize=(14, 14))
-
     bbox = config["bbox"]
     ax.set_xlim(bbox["west"], bbox["east"])
     ax.set_ylim(bbox["south"], bbox["north"])
 
-    # Plot in order: water (bottom) -> parks -> buildings -> roads (top)
     if isinstance(water, gpd.GeoDataFrame) and len(water) > 0:
         log("  Plotting water...")
         water.plot(ax=ax, color="#4A90D9", alpha=0.6, label="Water")
@@ -458,14 +541,13 @@ def visualize_urban_features(buildings, parks, water, roads, config,
         parks.plot(ax=ax, color="#2ECC71", alpha=0.5, label="Parks & Green Space")
 
     if isinstance(buildings, gpd.GeoDataFrame) and len(buildings) > 0:
-        log("  Plotting buildings (this may take a moment with many features)...")
+        log("  Plotting buildings (may take a moment)...")
         buildings.plot(ax=ax, color="#E74C3C", alpha=0.3, markersize=0.5, label="Buildings")
 
     if isinstance(roads, gpd.GeoDataFrame) and len(roads) > 0:
         log("  Plotting roads...")
         roads.plot(ax=ax, color="#7F8C8D", alpha=0.3, linewidth=0.3, label="Roads")
 
-    # Neighborhood labels
     for hood in config.get("focus_neighborhoods", []):
         lat, lon = hood["center"]
         ax.annotate(
@@ -482,31 +564,31 @@ def visualize_urban_features(buildings, parks, water, roads, config,
     ax.set_xlabel("Longitude", fontsize=11)
     ax.set_ylabel("Latitude", fontsize=11)
     ax.legend(loc="upper left", fontsize=10)
-    ax.set_facecolor("#F5F5DC")  # Light beige background
+    ax.set_facecolor("#F5F5DC")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
-    log(f"✓ Urban features map saved to: {output_path}")
+    log(f"✓ Saved {output_path}")
     plt.show()
 
 
 def print_summary(buildings, parks, water, roads):
-    """Print a summary of fetched data."""
     print()
     print("  ┌─────────────────────────────────────┐")
     print("  │     Urban Feature Summary            │")
     print("  ├─────────────────────────────────────┤")
 
     if isinstance(buildings, gpd.GeoDataFrame) and len(buildings) > 0:
-        total_area = buildings["area_m2"].sum() / 1e6  # km2
-        avg_height = buildings["height_m"].dropna().mean()
+        total_area = buildings["area_m2"].sum() / 1e6
         print(f"  │ Buildings: {len(buildings):>10,}              │")
         print(f"  │ Total footprint: {total_area:>8.1f} km2        │")
-        if not np.isnan(avg_height):
-            print(f"  │ Avg height: {avg_height:>8.1f} m             │")
+        if "height_m" in buildings.columns:
+            avg_h = buildings["height_m"].dropna().mean()
+            if not np.isnan(avg_h):
+                print(f"  │ Avg height: {avg_h:>8.1f} m             │")
 
     if isinstance(parks, gpd.GeoDataFrame) and len(parks) > 0:
-        park_area = parks["area_m2"].sum() / 1e6
+        park_area = parks["area_m2"].sum() / 1e6 if "area_m2" in parks.columns else 0
         print(f"  │ Parks: {len(parks):>14,}              │")
         print(f"  │ Total park area: {park_area:>8.1f} km2       │")
 
@@ -530,39 +612,31 @@ def main():
 
     print("=" * 60)
     print("  TomorrowLand Heat — OpenStreetMap Urban Data Pipeline")
+    print("  v3 — Quadrant-based building fetch")
     print("=" * 60)
     print()
 
     config = load_config()
     log(f"City: {config['city']['display_name']}")
-    print()
 
     if HAS_OSMNX:
-        log("Using OSMnx for data fetching")
-        # Configure OSMnx
+        log("OSMnx available (used for parks, water, roads)")
         ox.settings.use_cache = True
-        ox.settings.max_query_area_size = 5_000_000_000  # 5 billion
         ox.settings.cache_folder = "data/osm_cache"
-        ox.settings.timeout = 300  # 5 minute timeout per request
-    else:
-        log("Using Overpass API directly (install osmnx for better results)")
+        ox.settings.timeout = 300
     print()
 
-    # ---- Fetch all data ----
+    # ---- Buildings (quadrant approach — bypasses OSMnx) ----
     print("=" * 40)
-    print("[1/4] Buildings")
+    print("[1/4] Buildings (3x3 quadrant fetch)")
     print("=" * 40)
     try:
-        buildings = fetch_buildings_osmnx(config) if HAS_OSMNX else gpd.GeoDataFrame()
+        buildings = fetch_buildings_by_quadrants(config, rows=3, cols=3)
     except Exception as e:
-        log(f"⚠ Building fetch error: {e}")
-        log("Trying Overpass API fallback...")
-        try:
-            buildings = fetch_buildings_overpass(config)
-        except Exception as e2:
-            log(f"⚠ Fallback also failed: {e2}")
-            buildings = gpd.GeoDataFrame()
+        log(f"⚠ Building fetch failed: {e}")
+        buildings = gpd.GeoDataFrame()
 
+    # ---- Parks ----
     print()
     print("=" * 40)
     print("[2/4] Parks & Green Spaces")
@@ -573,6 +647,7 @@ def main():
         log(f"⚠ Parks fetch error: {e}")
         parks = gpd.GeoDataFrame()
 
+    # ---- Water ----
     print()
     print("=" * 40)
     print("[3/4] Water Bodies")
@@ -583,6 +658,7 @@ def main():
         log(f"⚠ Water fetch error: {e}")
         water = gpd.GeoDataFrame()
 
+    # ---- Roads ----
     print()
     print("=" * 40)
     print("[4/4] Road Network")
@@ -608,7 +684,7 @@ def main():
     print()
     visualize_urban_features(buildings, parks, water, roads, config)
 
-    # ---- Final timing ----
+    # ---- Done ----
     total_elapsed = int(time.time() - overall_start)
     mins, secs = divmod(total_elapsed, 60)
 
@@ -622,7 +698,7 @@ def main():
     print("  - chicago_water.geojson")
     print("  - chicago_roads.geojson")
     print()
-    print("  Next step: Run process_grid.py to build the analysis grid")
+    print("  Next step: Re-run process_grid.py to rebuild with OSM features")
     print("=" * 60)
 
 
