@@ -6,24 +6,24 @@ import ComparePanel from './components/ComparePanel'
 import PrioritiesPanel from './components/PrioritiesPanel'
 
 const API_BASE = '/api'
-const CHICAGO_CENTER = [41.85, -87.72]
+const DEFAULT_CENTER = [39.8, -98.5] // Center of US
 
 const CITIES = [
-  { name: 'Chicago', state: 'Illinois', coords: [41.85, -87.72] },
-  { name: 'Phoenix', state: 'Arizona', coords: [33.45, -112.07] },
-  { name: 'Houston', state: 'Texas', coords: [29.76, -95.37] },
-  { name: 'Los Angeles', state: 'California', coords: [34.05, -118.24] },
-  { name: 'Atlanta', state: 'Georgia', coords: [33.75, -84.39] },
-  { name: 'Miami', state: 'Florida', coords: [25.76, -80.19] },
-  { name: 'New York City', state: 'New York', coords: [40.71, -74.01] },
-  { name: 'Dallas', state: 'Texas', coords: [32.78, -96.80] },
+  { name: 'Chicago', slug: 'chicago', state: 'Illinois', coords: [41.85, -87.72] },
+  { name: 'Phoenix', slug: 'phoenix', state: 'Arizona', coords: [33.45, -112.07] },
+  { name: 'Houston', slug: 'houston', state: 'Texas', coords: [29.76, -95.37] },
+  { name: 'Los Angeles', slug: 'los-angeles', state: 'California', coords: [34.05, -118.24] },
+  { name: 'Atlanta', slug: 'atlanta', state: 'Georgia', coords: [33.75, -84.39] },
+  { name: 'Miami', slug: 'miami', state: 'Florida', coords: [25.76, -80.19] },
+  { name: 'New York City', slug: 'nyc', state: 'New York', coords: [40.71, -74.01] },
+  { name: 'Dallas', slug: 'dallas', state: 'Texas', coords: [32.78, -96.80] },
 ]
 
 // ============================================================
 // City Search
 // ============================================================
 
-function CitySearch({ onSelectCity }) {
+function CitySearch({ onSelectCity, activeCity }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
 
@@ -48,10 +48,10 @@ function CitySearch({ onSelectCity }) {
         <div className="city-search-dropdown">
           {filtered.map((city) => (
             <button
-              key={city.name}
-              className="city-search-item"
+              key={city.slug}
+              className={`city-search-item ${activeCity === city.slug ? 'active' : ''}`}
               onMouseDown={() => {
-                onSelectCity(city.coords)
+                onSelectCity(city)
                 setQuery(city.name)
                 setOpen(false)
               }}
@@ -169,9 +169,11 @@ export default function App() {
   const [error, setError] = useState(null)
   const [opacity, setOpacity] = useState(0.78)
 
-  // Heat map images
-  const [heatmapUrls, setHeatmapUrls] = useState({})
-  const [heatmapBounds, setHeatmapBounds] = useState({})
+  // Active city
+  const [activeCity, setActiveCity] = useState('chicago')
+
+  // Heat map images — keyed per city: { chicago: { temperature: { url, bounds } } }
+  const [heatmapData, setHeatmapData] = useState({})
 
   // Simulation overlay
   const [simOverlay, setSimOverlay] = useState(null)
@@ -180,30 +182,81 @@ export default function App() {
   const [priorityZones, setPriorityZones] = useState([])
   const [flyTarget, setFlyTarget] = useState(null)
 
-  // ---- Load initial data ----
+  // ---- Load data for a city ----
+  const loadCityData = useCallback(async (citySlug) => {
+    // Skip if already cached
+    if (heatmapData[citySlug]) {
+      // Just reload stats for the city
+      try {
+        const statsRes = await fetch(`${API_BASE}/stats?city=${citySlug}`)
+        if (statsRes.ok) setCityStats(await statsRes.json())
+      } catch {}
+      return
+    }
+
+    try {
+      const statsRes = await fetch(`${API_BASE}/stats?city=${citySlug}`)
+      if (!statsRes.ok) throw new Error(`No data for ${citySlug}`)
+      setCityStats(await statsRes.json())
+
+      const layers = ['temperature', 'risk', 'ndvi']
+      const cityData = {}
+
+      for (const l of layers) {
+        const boundsRes = await fetch(`${API_BASE}/heatmap/${l}/bounds?city=${citySlug}`)
+        if (boundsRes.ok) {
+          cityData[l] = {
+            bounds: await boundsRes.json(),
+            url: `${API_BASE}/heatmap/${l}.png?city=${citySlug}`,
+          }
+        }
+      }
+
+      setHeatmapData(prev => ({ ...prev, [citySlug]: cityData }))
+    } catch (err) {
+      console.error(`Load error for ${citySlug}:`, err)
+    }
+  }, [heatmapData])
+
+  // ---- Load default city on startup ----
   useEffect(() => {
-    async function loadData() {
+    async function init() {
       try {
         setLoading(true)
+        // Check which cities are available
+        const citiesRes = await fetch(`${API_BASE}/cities`)
+        if (!citiesRes.ok) throw new Error('Failed to connect to API')
+        const availableCities = await citiesRes.json()
 
-        const statsRes = await fetch(`${API_BASE}/stats`)
-        if (!statsRes.ok) throw new Error('Failed to load city stats')
-        setCityStats(await statsRes.json())
+        if (availableCities.length === 0) {
+          throw new Error('No cities loaded on the server')
+        }
 
-        const layers = ['temperature', 'risk', 'ndvi']
-        const boundsMap = {}
-        const urlsMap = {}
+        // Load all available cities
+        for (const c of availableCities) {
+          const slug = c.slug
+          const statsRes = await fetch(`${API_BASE}/stats?city=${slug}`)
 
-        for (const l of layers) {
-          const boundsRes = await fetch(`${API_BASE}/heatmap/${l}/bounds`)
-          if (boundsRes.ok) {
-            boundsMap[l] = await boundsRes.json()
-            urlsMap[l] = `${API_BASE}/heatmap/${l}.png`
+          const layers = ['temperature', 'risk', 'ndvi']
+          const cityData = {}
+          for (const l of layers) {
+            const boundsRes = await fetch(`${API_BASE}/heatmap/${l}/bounds?city=${slug}`)
+            if (boundsRes.ok) {
+              cityData[l] = {
+                bounds: await boundsRes.json(),
+                url: `${API_BASE}/heatmap/${l}.png?city=${slug}`,
+              }
+            }
+          }
+
+          setHeatmapData(prev => ({ ...prev, [slug]: cityData }))
+
+          // Set stats for the default city
+          if (slug === activeCity && statsRes.ok) {
+            setCityStats(await statsRes.json())
           }
         }
 
-        setHeatmapBounds(boundsMap)
-        setHeatmapUrls(urlsMap)
         setLoading(false)
       } catch (err) {
         console.error('Load error:', err)
@@ -211,25 +264,25 @@ export default function App() {
         setLoading(false)
       }
     }
-    loadData()
+    init()
   }, [])
 
   // ---- Load priorities when entering priorities mode ----
   useEffect(() => {
     if (mode === 'priorities') {
-      fetch(`${API_BASE}/priorities?min_temp_f=100&top_n=15`)
+      fetch(`${API_BASE}/priorities?min_temp_f=100&top_n=15&city=${activeCity}`)
         .then(res => res.json())
         .then(data => setPriorityZones(data))
         .catch(err => console.error('Priorities error:', err))
     } else {
       setPriorityZones([])
     }
-  }, [mode])
+  }, [mode, activeCity])
 
   // ---- Handlers ----
   const handleMapClick = useCallback(async (lat, lon) => {
     try {
-      const res = await fetch(`${API_BASE}/cell?lat=${lat}&lon=${lon}`)
+      const res = await fetch(`${API_BASE}/cell?lat=${lat}&lon=${lon}&city=${activeCity}`)
       if (res.ok) {
         const detail = await res.json()
         setSelectedCell(detail)
@@ -238,7 +291,7 @@ export default function App() {
     } catch (err) {
       console.error('Cell detail error:', err)
     }
-  }, [mode])
+  }, [mode, activeCity])
 
   const handleSimulationResult = useCallback((result) => {
     if (!result) {
@@ -253,12 +306,22 @@ export default function App() {
 
   const handleSelectZone = useCallback((zone) => {
     setFlyTarget([zone.lat, zone.lon])
-    // Also select that cell for detail
-    fetch(`${API_BASE}/cell?lat=${zone.lat}&lon=${zone.lon}`)
+    fetch(`${API_BASE}/cell?lat=${zone.lat}&lon=${zone.lon}&city=${activeCity}`)
       .then(res => res.json())
       .then(detail => setSelectedCell(detail))
       .catch(() => {})
-  }, [])
+  }, [activeCity])
+
+  // ---- Handle city switch ----
+  const handleCitySelect = useCallback((city) => {
+    setActiveCity(city.slug)
+    setFlyTarget(city.coords)
+    setSelectedCell(null)
+    setSimOverlay(null)
+    setPriorityZones([])
+    // Load stats for selected city
+    loadCityData(city.slug)
+  }, [loadCityData])
 
   // Clear simulation overlay when leaving simulate mode
   useEffect(() => {
@@ -273,7 +336,7 @@ export default function App() {
       <div className="loading-overlay">
         <div className="spinner" />
         <h1>TomorrowLand Heat</h1>
-        <p>Loading Chicago urban heat data...</p>
+        <p>Loading urban heat data...</p>
       </div>
     )
   }
@@ -295,11 +358,19 @@ export default function App() {
     )
   }
 
-  const bounds = heatmapBounds[layer]
-  const imageUrl = heatmapUrls[layer]
-  const leafletBounds = bounds
-    ? [[bounds.south, bounds.west], [bounds.north, bounds.east]]
-    : null
+  // Build overlays for all loaded cities
+  const cityOverlays = Object.entries(heatmapData).map(([slug, data]) => {
+    const layerData = data[layer]
+    if (!layerData) return null
+    const b = layerData.bounds
+    return {
+      slug,
+      url: layerData.url,
+      bounds: [[b.south, b.west], [b.north, b.east]],
+    }
+  }).filter(Boolean)
+
+  const activeCityName = CITIES.find(c => c.slug === activeCity)?.name || activeCity
 
   return (
     <div className="app-container">
@@ -307,7 +378,7 @@ export default function App() {
       <div className="top-bar">
         <div className="logo">
           <h1>TomorrowLand Heat</h1>
-          <span>Urban Heat Island Mapper — Chicago</span>
+          <span>Urban Heat Island Mapper — {activeCityName}</span>
         </div>
         <div className="mode-tabs">
           {[
@@ -330,8 +401,8 @@ export default function App() {
       {/* Map */}
       <div className="map-container">
         <MapContainer
-          center={CHICAGO_CENTER}
-          zoom={11}
+          center={DEFAULT_CENTER}
+          zoom={5}
           style={{ height: '100%', width: '100%' }}
           zoomControl={true}
           minZoom={3}
@@ -342,15 +413,16 @@ export default function App() {
             attribution='&copy; OSM &copy; CARTO'
           />
 
-          {/* Base heat map */}
-          {imageUrl && leafletBounds && (
+          {/* Heat map overlays for all loaded cities */}
+          {cityOverlays.map(overlay => (
             <ImageOverlay
-              url={imageUrl}
-              bounds={leafletBounds}
+              key={`${overlay.slug}-${layer}`}
+              url={overlay.url}
+              bounds={overlay.bounds}
               opacity={opacity}
               className="heat-overlay-img"
             />
-          )}
+          ))}
 
           {/* Simulation overlay (shows post-intervention temps) */}
           {simOverlay && (
@@ -419,12 +491,12 @@ export default function App() {
           />
 
           <MapClickHandler onMapClick={handleMapClick} />
-          {flyTarget && <FlyTo center={flyTarget} zoom={14} />}
+          {flyTarget && <FlyTo center={flyTarget} zoom={11} />}
         </MapContainer>
       </div>
 
       {/* City search */}
-      <CitySearch onSelectCity={(coords) => setFlyTarget(coords)} />
+      <CitySearch onSelectCity={handleCitySelect} activeCity={activeCity} />
 
       {/* Layer controls */}
       <div className="layer-toggles">
@@ -468,15 +540,16 @@ export default function App() {
       {mode === 'explore' && (
         <SidePanel cell={selectedCell} cityStats={cityStats} onClose={() => setSelectedCell(null)} />
       )}
-      {mode === 'compare' && <ComparePanel />}
+      {mode === 'compare' && <ComparePanel activeCity={activeCity} />}
       {mode === 'simulate' && (
         <SimulatePanel
           selectedCell={selectedCell}
           onSimulationResult={handleSimulationResult}
+          activeCity={activeCity}
         />
       )}
       {mode === 'priorities' && (
-        <PrioritiesPanel onSelectZone={handleSelectZone} />
+        <PrioritiesPanel onSelectZone={handleSelectZone} activeCity={activeCity} />
       )}
     </div>
   )

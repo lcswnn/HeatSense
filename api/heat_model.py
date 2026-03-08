@@ -29,29 +29,30 @@ def to_python(val):
 class HeatModel:
     """Wrapper around the trained LightGBM model and grid data."""
 
-    def __init__(self, model_dir="../model/models", grid_path="../data/grid/chicago_grid.csv"):
+    def __init__(self, model_dir="../model/models", grid_path=None, city_slug="chicago"):
         self.model = None
         self.metadata = None
         self.grid = None
         self.features = None
-        self._load(model_dir, grid_path)
+        self.city_slug = city_slug
+        self._load(model_dir, grid_path, city_slug)
 
-    def _load(self, model_dir, grid_path):
+    def _load(self, model_dir, grid_path, city_slug):
         model_dir = Path(model_dir)
 
-        tuned_path = model_dir / "chicago_heat_model_tuned.pkl"
-        original_path = model_dir / "chicago_heat_model.pkl"
+        tuned_path = model_dir / f"{city_slug}_heat_model_tuned.pkl"
+        original_path = model_dir / f"{city_slug}_heat_model.pkl"
 
         if tuned_path.exists():
             model_path = tuned_path
-            meta_path = model_dir / "chicago_tuned_metadata.json"
+            meta_path = model_dir / f"{city_slug}_tuned_metadata.json"
             print(f"  Loading tuned model from {model_path}")
         elif original_path.exists():
             model_path = original_path
-            meta_path = model_dir / "chicago_model_metadata.json"
+            meta_path = model_dir / f"{city_slug}_model_metadata.json"
             print(f"  Loading original model from {model_path}")
         else:
-            raise FileNotFoundError(f"No model found in {model_dir}")
+            raise FileNotFoundError(f"No model found for '{city_slug}' in {model_dir}")
 
         with open(model_path, "rb") as f:
             self.model = pickle.load(f)

@@ -22,7 +22,7 @@ const FEASIBILITY_LABELS = {
   'mixed_urban': '🔧 Moderate',
 }
 
-export default function PrioritiesPanel({ onSelectZone }) {
+export default function PrioritiesPanel({ onSelectZone, activeCity }) {
   const [priorities, setPriorities] = useState(null)
   const [loading, setLoading] = useState(false)
   const [minTemp, setMinTemp] = useState(100)
@@ -30,7 +30,7 @@ export default function PrioritiesPanel({ onSelectZone }) {
   const loadPriorities = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/priorities?min_temp_f=${minTemp}&top_n=15`)
+      const res = await fetch(`${API_BASE}/priorities?min_temp_f=${minTemp}&top_n=15&city=${activeCity}`)
       if (res.ok) {
         const data = await res.json()
         setPriorities(data)
@@ -39,7 +39,7 @@ export default function PrioritiesPanel({ onSelectZone }) {
       console.error('Priority load error:', err)
     }
     setLoading(false)
-  }, [minTemp])
+  }, [minTemp, activeCity])
 
   useEffect(() => {
     loadPriorities()

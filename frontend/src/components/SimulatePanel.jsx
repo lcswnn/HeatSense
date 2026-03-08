@@ -8,7 +8,7 @@ const INTERVENTION_LABELS = {
   heavy: { name: 'Green Corridor', emoji: '🌲', desc: 'Parks, green roofs, urban forest' },
 }
 
-export default function SimulatePanel({ selectedCell, onSimulationResult }) {
+export default function SimulatePanel({ selectedCell, onSimulationResult, activeCity }) {
   const [interventionType, setInterventionType] = useState('moderate')
   const [radius, setRadius] = useState(500)
   const [result, setResult] = useState(null)
@@ -28,6 +28,7 @@ export default function SimulatePanel({ selectedCell, onSimulationResult }) {
           lon: selectedCell.lon,
           radius_m: radius,
           intervention_type: interventionType,
+          city: activeCity,
         }),
       })
 
@@ -37,11 +38,11 @@ export default function SimulatePanel({ selectedCell, onSimulationResult }) {
 
         // Get the simulation overlay image + bounds for the map
         const boundsRes = await fetch(
-          `${API_BASE}/simulate/overlay/bounds?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}`
+          `${API_BASE}/simulate/overlay/bounds?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}&city=${activeCity}`
         )
         if (boundsRes.ok) {
           const bounds = await boundsRes.json()
-          const overlayUrl = `${API_BASE}/simulate/overlay?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}`
+          const overlayUrl = `${API_BASE}/simulate/overlay?lat=${selectedCell.lat}&lon=${selectedCell.lon}&radius_m=${radius}&intervention_type=${interventionType}&city=${activeCity}`
 
           // Pass overlay info up to App to render on map
           onSimulationResult?.({

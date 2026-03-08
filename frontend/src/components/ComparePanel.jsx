@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react'
 
 const API_BASE = '/api'
 
-export default function ComparePanel() {
+export default function ComparePanel({ activeCity }) {
   const [neighborhoods, setNeighborhoods] = useState([])
-  const [selected, setSelected] = useState(['Englewood', 'Lincoln Park'])
+  const [selected, setSelected] = useState([])
   const [comparison, setComparison] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -12,7 +12,7 @@ export default function ComparePanel() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/neighborhoods`)
+        const res = await fetch(`${API_BASE}/neighborhoods?city=${activeCity}`)
         if (res.ok) {
           const data = await res.json()
           setNeighborhoods(data)
@@ -22,7 +22,14 @@ export default function ComparePanel() {
       }
     }
     load()
-  }, [])
+  }, [activeCity])
+
+  // Auto-select first two neighborhoods when data loads
+  useEffect(() => {
+    if (neighborhoods.length >= 2) {
+      setSelected([neighborhoods[0].name, neighborhoods[1].name])
+    }
+  }, [neighborhoods])
 
   // Run comparison
   const runComparison = useCallback(async () => {
@@ -38,7 +45,7 @@ export default function ComparePanel() {
       const res = await fetch(`${API_BASE}/compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ neighborhoods: hoods }),
+        body: JSON.stringify({ neighborhoods: hoods, city: activeCity }),
       })
 
       if (res.ok) {
@@ -68,7 +75,7 @@ export default function ComparePanel() {
     <div className="side-panel">
       <h2>Compare Neighborhoods</h2>
       <p style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
-        See how heat exposure differs across Chicago neighborhoods.
+        See how heat exposure differs across neighborhoods.
       </p>
 
       {/* Selectors */}

@@ -381,6 +381,11 @@ body {
   color: #fff;
 }
 
+.city-search-item.active {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
 .city-search-item + .city-search-item {
   border-top: 1px solid rgba(255,255,255,0.05);
 }
