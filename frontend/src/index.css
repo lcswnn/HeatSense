@@ -318,6 +318,74 @@ body {
 }
 
 /* ============================================
+   City Search
+   ============================================ */
+
+.city-search {
+  position: absolute;
+  top: 70px;
+  left: 16px;
+  z-index: 1000;
+  width: 240px;
+}
+
+.city-search-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(18, 18, 22, 0.92);
+  backdrop-filter: blur(12px);
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.city-search-input::placeholder {
+  color: #666;
+}
+
+.city-search-input:focus {
+  border-color: rgba(231, 76, 60, 0.5);
+}
+
+.city-search-dropdown {
+  margin-top: 4px;
+  background: rgba(18, 18, 22, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.city-search-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: #ccc;
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.city-search-item:hover {
+  background: rgba(231, 76, 60, 0.15);
+  color: #fff;
+}
+
+.city-search-item + .city-search-item {
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ============================================
    Layer Toggles
    ============================================ */
 

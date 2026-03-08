@@ -42,6 +42,7 @@ import ee
 import geemap
 import os
 import yaml
+import argparse
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -60,7 +61,17 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # CONFIGURATION
 # ============================================================
 
-def load_config(config_path="config/chicago.yaml"):
+def load_config(config_path=None, city_slug=None):
+    """Load city configuration. Use --city flag or direct path."""
+    if config_path is None and city_slug is not None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(script_dir)
+        config_path = os.path.join(project_dir, "config", f"{city_slug}.yaml")
+    elif config_path is None:
+        config_path = "config/chicago.yaml"
+    if not os.path.exists(config_path):
+        print(f"  Error: Config not found at {config_path}")
+        raise SystemExit(1)
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
@@ -261,14 +272,14 @@ def assign_satellite_data(grid, rasters, config):
 # STEP 3: ASSIGN OSM URBAN FEATURES
 # ============================================================
 
-def load_osm_data():
+def load_osm_data(city_slug="chicago"):
     """Load previously saved OSM GeoJSON files."""
     data = {}
     osm_files = {
-        "buildings": "data/osm/chicago_buildings.geojson",
-        "parks": "data/osm/chicago_parks.geojson",
-        "water": "data/osm/chicago_water.geojson",
-        "roads": "data/osm/chicago_roads.geojson",
+        "buildings": f"data/{city_slug}/osm/{city_slug}_buildings.geojson",
+        "parks": f"data/{city_slug}/osm/{city_slug}_parks.geojson",
+        "water": f"data/{city_slug}/osm/{city_slug}_water.geojson",
+        "roads": f"data/{city_slug}/osm/{city_slug}_roads.geojson",
     }
 
     for name, filepath in osm_files.items():
@@ -520,19 +531,20 @@ def assign_heat_risk(grid, config):
 # STEP 5: SAVE & VISUALIZE
 # ============================================================
 
-def save_grid(grid, config):
+def save_grid(grid, config, city_slug="chicago"):
     """Save the grid as both GeoJSON and CSV."""
     os.makedirs("data/grid", exist_ok=True)
 
     # GeoJSON (with geometry)
     grid_wgs84 = grid.to_crs("EPSG:4326")
-    geojson_path = "data/grid/chicago_grid.geojson"
+    os.makedirs(f"data/{city_slug}/grid", exist_ok=True)
+    geojson_path = f"data/{city_slug}/grid/{city_slug}_grid.geojson"
     grid_wgs84.to_file(geojson_path, driver="GeoJSON")
     print(f"  Saved GeoJSON: {geojson_path}")
 
     # CSV (without geometry, for ML training)
     csv_cols = [c for c in grid.columns if c not in ["geometry", "center_x_utm", "center_y_utm"]]
-    csv_path = "data/grid/chicago_grid.csv"
+    csv_path = f"data/{city_slug}/grid/{city_slug}_grid.csv"
     grid[csv_cols].to_csv(csv_path, index=False)
     print(f"  Saved CSV: {csv_path}")
     print(f"  CSV shape: {grid[csv_cols].shape}")
@@ -646,12 +658,19 @@ def visualize_heat_risk_map(grid, config, output_path="output/chicago_heat_risk.
 # ============================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="HeatSense — Analysis Grid Builder")
+    parser.add_argument("--city", type=str, default="chicago", help="City slug (e.g. chicago, phoenix, dallas)")
+    parser.add_argument("--config", type=str, default=None, help="Direct path to config YAML")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("  HeatSense — Analysis Grid Builder")
     print("=" * 60)
     print()
 
-    config = load_config()
+    config = load_config(config_path=args.config, city_slug=args.city)
+    city_slug = config.get("city", {}).get("slug", args.city)
     print(f"City: {config['city']['display_name']}")
     print(f"Grid cell size: {config['grid']['cell_size_meters']}m")
     print()
@@ -675,7 +694,7 @@ def main():
 
     # ---- Step 3: OSM urban features ----
     print("[Step 3/5] Loading OSM data and computing urban features...")
-    osm_data = load_osm_data()
+    osm_data = load_osm_data(city_slug=city_slug)
     print()
 
     print("  [3a] Building features...")
@@ -701,15 +720,15 @@ def main():
 
     # ---- Step 5: Save & visualize ----
     print("[Step 5/5] Saving and visualizing...")
-    geojson_path, csv_path = save_grid(grid, config)
+    geojson_path, csv_path = save_grid(grid, config, city_slug=city_slug)
     print()
 
     print("  Creating grid preview...")
-    visualize_grid(grid, config)
+    visualize_grid(grid, config, output_path=f"output/{city_slug}_grid_preview.png")
     print()
 
     print("  Creating heat risk map...")
-    visualize_heat_risk_map(grid, config)
+    visualize_heat_risk_map(grid, config, output_path=f"output/{city_slug}_heat_risk.png")
 
     # ---- Final summary ----
     print()
@@ -724,11 +743,11 @@ def main():
     print("  Output files:")
     print(f"  - {geojson_path} (spatial data)")
     print(f"  - {csv_path} (ML training data)")
-    print(f"  - output/chicago_grid_preview.png")
-    print(f"  - output/chicago_heat_risk.png")
+    print(f"  - output/{city_slug}_grid_preview.png")
+    print(f"  - output/{city_slug}_heat_risk.png")
     print()
     print("  NEXT: Train the ML model with:")
-    print("  python model/train_heat_model.py")
+    print(f"  python model/train_heat_model.py --city {city_slug}")
     print("=" * 60)
 
 

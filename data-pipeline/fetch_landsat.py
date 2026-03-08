@@ -348,7 +348,8 @@ def create_interactive_map(mean_lst_f, study_area, config):
     )
 
     # Save to HTML
-    output_path = "output/chicago_interactive_map.html"
+    city_slug = config.get("city", {}).get("slug", "city")
+    output_path = f"output/{city_slug}_interactive_map.html"
     os.makedirs("output", exist_ok=True)
     m.to_html(output_path)
     print(f"✓ Interactive map saved to: {output_path}")
@@ -452,9 +453,9 @@ def main():
         export_to_drive(mean_lst_c, f"{city_slug}_mean_summer_lst_celsius", study_area)
 
     # Create interactive map
-    print()
-    print("Creating interactive map...")
-    create_interactive_map(mean_lst_f, study_area, config)
+    # print()
+    # print("Creating interactive map...")
+    # create_interactive_map(mean_lst_f, study_area, config)
 
     print()
     print("=" * 60)

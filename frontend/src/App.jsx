@@ -8,6 +8,63 @@ import PrioritiesPanel from './components/PrioritiesPanel'
 const API_BASE = '/api'
 const CHICAGO_CENTER = [41.85, -87.72]
 
+const CITIES = [
+  { name: 'Chicago', state: 'Illinois', coords: [41.85, -87.72] },
+  { name: 'Phoenix', state: 'Arizona', coords: [33.45, -112.07] },
+  { name: 'Houston', state: 'Texas', coords: [29.76, -95.37] },
+  { name: 'Los Angeles', state: 'California', coords: [34.05, -118.24] },
+  { name: 'Atlanta', state: 'Georgia', coords: [33.75, -84.39] },
+  { name: 'Miami', state: 'Florida', coords: [25.76, -80.19] },
+  { name: 'New York City', state: 'New York', coords: [40.71, -74.01] },
+  { name: 'Dallas', state: 'Texas', coords: [32.78, -96.80] },
+]
+
+// ============================================================
+// City Search
+// ============================================================
+
+function CitySearch({ onSelectCity }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+
+  const filtered = query.trim()
+    ? CITIES.filter(c =>
+        `${c.name} ${c.state}`.toLowerCase().includes(query.toLowerCase())
+      )
+    : CITIES
+
+  return (
+    <div className="city-search">
+      <input
+        type="text"
+        placeholder="Search cities..."
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        className="city-search-input"
+      />
+      {open && filtered.length > 0 && (
+        <div className="city-search-dropdown">
+          {filtered.map((city) => (
+            <button
+              key={city.name}
+              className="city-search-item"
+              onMouseDown={() => {
+                onSelectCity(city.coords)
+                setQuery(city.name)
+                setOpen(false)
+              }}
+            >
+              {city.name}, {city.state}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============================================================
 // Map click handler
 // ============================================================
@@ -277,7 +334,7 @@ export default function App() {
           zoom={11}
           style={{ height: '100%', width: '100%' }}
           zoomControl={true}
-          minZoom={10}
+          minZoom={3}
           maxZoom={16}
         >
           <TileLayer
@@ -365,6 +422,9 @@ export default function App() {
           {flyTarget && <FlyTo center={flyTarget} zoom={14} />}
         </MapContainer>
       </div>
+
+      {/* City search */}
+      <CitySearch onSelectCity={(coords) => setFlyTarget(coords)} />
 
       {/* Layer controls */}
       <div className="layer-toggles">

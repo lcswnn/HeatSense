@@ -14,23 +14,26 @@ The model learns: given a 100m grid cell's characteristics, what is its
 expected summer surface temperature?
 
 Prerequisites:
-  - process_grid.py completed (data/grid/chicago_grid.csv exists)
+  - process_grid.py completed (data/{city}/grid/{city}_grid.csv exists)
   - pip install lightgbm scikit-learn
 
 Usage:
-  python train_heat_model.py
+  python train_heat_model.py --city chicago
+  python train_heat_model.py --city dallas
 
 Output:
-  - model/models/chicago_heat_model.pkl (trained model)
-  - model/models/chicago_model_metadata.json (feature info, metrics)
-  - output/model_feature_importance.png
-  - output/model_performance.png
-  - output/model_predicted_vs_actual.png
+  - model/models/{city}_heat_model.pkl (trained model)
+  - model/models/{city}_model_metadata.json (feature info, metrics)
+  - output/{city}_model_feature_importance.png
+  - output/{city}_model_predicted_vs_actual.png
+  - output/{city}_model_residual_map.png
+  - output/{city}_model_intervention_demo.png
 """
 
 import os
 import json
 import pickle
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -65,12 +68,11 @@ except ImportError:
 # CONFIGURATION
 # ============================================================
 
-GRID_CSV_PATH = "data/grid/chicago_grid.csv"
 MODEL_OUTPUT_DIR = "model/models"
 PLOT_OUTPUT_DIR = "output"
 
 # Features to use for training
-# These are the columns from chicago_grid.csv that the model will learn from
+# These are the columns from the grid CSV that the model will learn from
 FEATURE_COLUMNS = [
     "ndvi",              # Vegetation index (strongest predictor)
     "impervious_pct",    # Impervious surface percentage
@@ -131,15 +133,16 @@ SKLEARN_PARAMS = {
 # DATA LOADING & PREPARATION
 # ============================================================
 
-def load_and_prepare_data():
+def load_and_prepare_data(city_slug):
     """Load the grid CSV and prepare it for training."""
     print("=" * 50)
     print("  Loading Data")
     print("=" * 50)
 
     # Load grid
-    df = pd.read_csv(GRID_CSV_PATH)
-    print(f"  Loaded {len(df):,} grid cells from {GRID_CSV_PATH}")
+    grid_csv_path = f"data/{city_slug}/grid/{city_slug}_grid.csv"
+    df = pd.read_csv(grid_csv_path)
+    print(f"  Loaded {len(df):,} grid cells from {grid_csv_path}")
     print(f"  Columns: {list(df.columns)}")
     print()
 
@@ -654,32 +657,34 @@ def plot_intervention_demo(model, X_test, y_test, features, output_path):
 # SAVE MODEL
 # ============================================================
 
-def save_model(model, features, metrics, intervention_results):
+def save_model(model, features, metrics, intervention_results, city_slug):
     """Save the trained model and metadata."""
     os.makedirs(MODEL_OUTPUT_DIR, exist_ok=True)
 
     # Save model
-    model_path = os.path.join(MODEL_OUTPUT_DIR, "chicago_heat_model.pkl")
+    model_path = os.path.join(MODEL_OUTPUT_DIR, f"{city_slug}_heat_model.pkl")
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
     print(f"  Saved model: {model_path}")
 
     # Save metadata
+    grid_csv_path = f"data/{city_slug}/grid/{city_slug}_grid.csv"
     metadata = {
+        "city": city_slug,
         "model_type": MODEL_TYPE,
         "features": features,
         "target": TARGET_COLUMN,
         "metrics": metrics,
         "intervention_simulations": intervention_results,
         "trained_at": datetime.now().isoformat(),
-        "grid_csv": GRID_CSV_PATH,
+        "grid_csv": grid_csv_path,
         "n_features": len(features),
-        "description": "Gradient boosting model predicting land surface temperature "
-                       "from urban characteristics. Trained on Landsat 8/9 thermal data "
-                       "for Chicago summers (2022-2025)."
+        "description": f"Gradient boosting model predicting land surface temperature "
+                       f"from urban characteristics. Trained on Landsat 8/9 thermal data "
+                       f"for {city_slug} summers (2022-2025)."
     }
 
-    metadata_path = os.path.join(MODEL_OUTPUT_DIR, "chicago_model_metadata.json")
+    metadata_path = os.path.join(MODEL_OUTPUT_DIR, f"{city_slug}_model_metadata.json")
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
     print(f"  Saved metadata: {metadata_path}")
@@ -690,14 +695,19 @@ def save_model(model, features, metrics, intervention_results):
 # ============================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="Train heat prediction model for a city")
+    parser.add_argument("--city", default="chicago", help="City slug (e.g., chicago, dallas, phoenix)")
+    args = parser.parse_args()
+    city_slug = args.city
+
     print()
     print("=" * 60)
-    print("  HeatSense — ML Model Training")
+    print(f"  HeatSense — ML Model Training ({city_slug})")
     print("=" * 60)
     print()
 
     # ---- Load data ----
-    X, y, features, full_df = load_and_prepare_data()
+    X, y, features, full_df = load_and_prepare_data(city_slug)
 
     # ---- Split ----
     print("=" * 50)
@@ -734,35 +744,35 @@ def main():
 
     plot_feature_importance(
         importance_dict, features,
-        os.path.join(PLOT_OUTPUT_DIR, "model_feature_importance.png")
+        os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_model_feature_importance.png")
     )
 
     plot_predicted_vs_actual(
         model, X_test, y_test,
-        os.path.join(PLOT_OUTPUT_DIR, "model_predicted_vs_actual.png")
+        os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_model_predicted_vs_actual.png")
     )
 
     plot_residual_map(
         model, X, y, full_df,
-        os.path.join(PLOT_OUTPUT_DIR, "model_residual_map.png")
+        os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_model_residual_map.png")
     )
 
     plot_intervention_demo(
         model, X_test, y_test, features,
-        os.path.join(PLOT_OUTPUT_DIR, "model_intervention_demo.png")
+        os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_model_intervention_demo.png")
     )
 
     # ---- Save ----
     print("\n" + "=" * 50)
     print("  Saving Model")
     print("=" * 50)
-    save_model(model, features, metrics, intervention_results)
+    save_model(model, features, metrics, intervention_results, city_slug)
 
     # ---- Summary ----
     test_metrics = metrics["test"]
     print()
     print("=" * 60)
-    print("  MODEL TRAINING COMPLETE")
+    print(f"  MODEL TRAINING COMPLETE — {city_slug}")
     print()
     print(f"  Model type: {MODEL_TYPE}")
     print(f"  Features: {len(features)}")
@@ -774,18 +784,12 @@ def main():
             print(f"  {name}: ~{result['avg_temp_reduction_f']:.1f} F cooling")
     print()
     print("  Output files:")
-    print(f"  - {MODEL_OUTPUT_DIR}/chicago_heat_model.pkl")
-    print(f"  - {MODEL_OUTPUT_DIR}/chicago_model_metadata.json")
-    print(f"  - {PLOT_OUTPUT_DIR}/model_feature_importance.png")
-    print(f"  - {PLOT_OUTPUT_DIR}/model_predicted_vs_actual.png")
-    print(f"  - {PLOT_OUTPUT_DIR}/model_residual_map.png")
-    print(f"  - {PLOT_OUTPUT_DIR}/model_intervention_demo.png")
-    print()
-    print("  NEXT STEPS:")
-    print("  - Add OSM data (buildings, parks, water) to improve accuracy")
-    print("  - Build the forecasting pipeline (forecast.py)")
-    print("  - Build the FastAPI backend (api/main.py)")
-    print("  - Build the interactive frontend")
+    print(f"  - {MODEL_OUTPUT_DIR}/{city_slug}_heat_model.pkl")
+    print(f"  - {MODEL_OUTPUT_DIR}/{city_slug}_model_metadata.json")
+    print(f"  - {PLOT_OUTPUT_DIR}/{city_slug}_model_feature_importance.png")
+    print(f"  - {PLOT_OUTPUT_DIR}/{city_slug}_model_predicted_vs_actual.png")
+    print(f"  - {PLOT_OUTPUT_DIR}/{city_slug}_model_residual_map.png")
+    print(f"  - {PLOT_OUTPUT_DIR}/{city_slug}_model_intervention_demo.png")
     print("=" * 60)
 
 

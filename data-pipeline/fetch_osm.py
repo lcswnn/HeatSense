@@ -17,6 +17,7 @@ Output:
 
 import os
 import yaml
+import argparse
 import numpy as np
 import geopandas as gpd
 import pandas as pd
@@ -76,7 +77,17 @@ class ProgressMonitor:
 # CONFIGURATION
 # ============================================================
 
-def load_config(config_path="config/chicago.yaml"):
+def load_config(config_path=None, city_slug=None):
+    """Load city configuration. Use --city flag or direct path."""
+    if config_path is None and city_slug is not None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(script_dir)
+        config_path = os.path.join(project_dir, "config", f"{city_slug}.yaml")
+    elif config_path is None:
+        config_path = "config/chicago.yaml"
+    if not os.path.exists(config_path):
+        print(f"  Error: Config not found at {config_path}")
+        raise SystemExit(1)
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
@@ -604,6 +615,12 @@ def print_summary(buildings, parks, water, roads):
 # ============================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="HeatSense — OpenStreetMap Data Pipeline")
+    parser.add_argument("--city", type=str, default="chicago", help="City slug (e.g. chicago, phoenix, dallas)")
+    parser.add_argument("--config", type=str, default=None, help="Direct path to config YAML")
+    args = parser.parse_args()
+
     overall_start = time.time()
 
     print("=" * 60)
@@ -612,7 +629,8 @@ def main():
     print("=" * 60)
     print()
 
-    config = load_config()
+    config = load_config(config_path=args.config, city_slug=args.city)
+    city_slug = config.get("city", {}).get("slug", args.city)
     log(f"City: {config['city']['display_name']}")
     print()
 
@@ -665,14 +683,16 @@ def main():
     # ---- Save ----
     print()
     log("Saving all data...")
-    save_geodata(buildings, "data/osm/chicago_buildings.geojson")
-    save_geodata(parks, "data/osm/chicago_parks.geojson")
-    save_geodata(water, "data/osm/chicago_water.geojson")
-    save_geodata(roads, "data/osm/chicago_roads.geojson")
+    os.makedirs(f"data/{city_slug}/osm", exist_ok=True)
+    save_geodata(buildings, f"data/{city_slug}/osm/{city_slug}_buildings.geojson")
+    save_geodata(parks, f"data/{city_slug}/osm/{city_slug}_parks.geojson")
+    save_geodata(water, f"data/{city_slug}/osm/{city_slug}_water.geojson")
+    save_geodata(roads, f"data/{city_slug}/osm/{city_slug}_roads.geojson")
 
     # ---- Visualize ----
     print()
-    visualize_urban_features(buildings, parks, water, roads, config)
+    visualize_urban_features(buildings, parks, water, roads, config,
+                             output_path=f"output/{city_slug}_urban_features.png")
 
     # ---- Done ----
     total_elapsed = int(time.time() - overall_start)
@@ -682,13 +702,13 @@ def main():
     print("=" * 60)
     print(f"  Done! Total time: {mins}m {secs}s")
     print()
-    print("  Saved to data/osm/:")
-    print("  - chicago_buildings.geojson")
-    print("  - chicago_parks.geojson")
-    print("  - chicago_water.geojson")
-    print("  - chicago_roads.geojson")
+    print(f"  Saved to data/{city_slug}/osm/:")
+    print(f"  - {city_slug}_buildings.geojson")
+    print(f"  - {city_slug}_parks.geojson")
+    print(f"  - {city_slug}_water.geojson")
+    print(f"  - {city_slug}_roads.geojson")
     print()
-    print("  Next: Re-run process_grid.py then train_heat_model.py")
+    print(f"  Next: python process_grid.py --city {city_slug}")
     print("=" * 60)
 
 

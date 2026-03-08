@@ -30,6 +30,7 @@ import ee
 import geemap
 import os
 import yaml
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -39,7 +40,17 @@ import matplotlib.colors as mcolors
 # CONFIGURATION
 # ============================================================
 
-def load_config(config_path="config/chicago.yaml"):
+def load_config(config_path=None, city_slug=None):
+    """Load city configuration. Use --city flag or direct path."""
+    if config_path is None and city_slug is not None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(script_dir)
+        config_path = os.path.join(project_dir, "config", f"{city_slug}.yaml")
+    elif config_path is None:
+        config_path = "config/chicago.yaml"
+    if not os.path.exists(config_path):
+        print(f"  Error: Config not found at {config_path}")
+        raise SystemExit(1)
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
@@ -297,7 +308,7 @@ def visualize_comparison(heat_data, ndvi_data, bounds, config,
     plt.show()
 
 
-def create_scatter_analysis(heat_data, ndvi_data,
+def create_scatter_analysis(heat_data, ndvi_data, config=None,
                             output_path="output/chicago_heat_ndvi_scatter.png"):
     """
     Scatter plot: NDVI vs Surface Temperature.
@@ -341,7 +352,7 @@ def create_scatter_analysis(heat_data, ndvi_data,
     ax.set_xlabel("NDVI (Vegetation Index)", fontsize=12)
     ax.set_ylabel("Land Surface Temperature (°F)", fontsize=12)
     ax.set_title(
-        f"Vegetation vs. Surface Temperature — Chicago\n"
+        f"Vegetation vs. Surface Temperature — {config['city']['display_name'] if config else 'City'}\n"
         f"Correlation: r = {correlation:.3f} — More trees = cooler neighborhoods",
         fontsize=14, fontweight="bold"
     )
@@ -390,7 +401,8 @@ def create_interactive_map(mean_ndvi, mean_lst_f, imperv, study_area, config):
     # Layer control
     m.addLayerControl()
 
-    output_path = "output/chicago_multi_layer_map.html"
+    city_name = config.get("city", {}).get("slug", "city") if config else "city"
+    output_path = f"output/{city_name}_multi_layer_map.html"
     os.makedirs("output", exist_ok=True)
     m.to_html(output_path)
     print(f"✓ Multi-layer interactive map saved to: {output_path}")
@@ -403,12 +415,19 @@ def create_interactive_map(mean_ndvi, mean_lst_f, imperv, study_area, config):
 # ============================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="HeatSense — NDVI Vegetation Pipeline")
+    parser.add_argument("--city", type=str, default="chicago", help="City slug (e.g. chicago, phoenix, dallas)")
+    parser.add_argument("--config", type=str, default=None, help="Direct path to config YAML")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("  HeatSense — NDVI Vegetation Pipeline")
     print("=" * 60)
     print()
 
-    config = load_config()
+    config = load_config(config_path=args.config, city_slug=args.city)
+    city_slug = config.get("city", {}).get("slug", args.city)
     print(f"📍 City: {config['city']['display_name']}")
     print()
 
@@ -439,24 +458,27 @@ def main():
     print("Downloading data for visualization...")
     try:
         ndvi_data, ndvi_bounds = download_as_numpy(mean_ndvi, study_area, scale=100)
-        visualize_ndvi(ndvi_data, ndvi_bounds, config)
+        visualize_ndvi(ndvi_data, ndvi_bounds, config,
+                       output_path=f"output/{city_slug}_ndvi_map.png")
 
         heat_data, heat_bounds = download_as_numpy(mean_lst_f, study_area, scale=100)
 
         # The money shot: side-by-side comparison
         print()
         print("Creating heat vs. vegetation comparison...")
-        visualize_comparison(heat_data, ndvi_data, ndvi_bounds, config)
+        visualize_comparison(heat_data, ndvi_data, ndvi_bounds, config,
+                             output_path=f"output/{city_slug}_heat_vs_vegetation.png")
 
         # Scatter plot showing the correlation
         print()
         print("Creating correlation analysis...")
-        create_scatter_analysis(heat_data, ndvi_data)
+        create_scatter_analysis(heat_data, ndvi_data, config,
+                                output_path=f"output/{city_slug}_heat_ndvi_scatter.png")
 
     except Exception as e:
         print(f"⚠ Local download failed ({e}), using Drive export...")
         export_task = ee.batch.Export.image.toDrive(
-            image=mean_ndvi, description="chicago_mean_ndvi",
+            image=mean_ndvi, description=f"{city_slug}_mean_ndvi",
             folder="tomorrowland_heat", region=study_area,
             scale=30, crs="EPSG:4326", maxPixels=1e9
         )
@@ -473,12 +495,12 @@ def main():
     print("  🎉 NDVI pipeline complete!")
     print()
     print("  Key outputs:")
-    print("  - output/chicago_ndvi_map.png           (vegetation map)")
-    print("  - output/chicago_heat_vs_vegetation.png  (THE comparison)")
-    print("  - output/chicago_heat_ndvi_scatter.png   (correlation proof)")
-    print("  - output/chicago_multi_layer_map.html    (interactive explorer)")
+    print(f"  - output/{city_slug}_ndvi_map.png           (vegetation map)")
+    print(f"  - output/{city_slug}_heat_vs_vegetation.png  (THE comparison)")
+    print(f"  - output/{city_slug}_heat_ndvi_scatter.png   (correlation proof)")
+    print(f"  - output/{city_slug}_multi_layer_map.html    (interactive explorer)")
     print()
-    print("  Next step: Run process_grid.py to build the analysis grid")
+    print(f"  Next step: Run process_grid.py --city {city_slug}")
     print("=" * 60)
 
 
