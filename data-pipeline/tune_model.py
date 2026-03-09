@@ -15,15 +15,17 @@ Approach:
   - Evaluate specifically on extreme heat cells (the ones that matter most)
 
 Usage:
-  python tune_model.py
+  python tune_model.py --city chicago
+  python tune_model.py --city dallas
 
 Output:
-  - model/models/chicago_heat_model_tuned.pkl
-  - model/models/chicago_tuned_metadata.json
-  - output/tuning_comparison.png
-  - output/tuning_extreme_performance.png
+  - model/models/{city}_heat_model_tuned.pkl
+  - model/models/{city}_tuned_metadata.json
+  - output/{city}_tuning_comparison.png
+  - output/{city}_tuning_residual_map.png
 """
 
+import argparse
 import os
 import json
 import pickle
@@ -46,7 +48,6 @@ warnings.filterwarnings("ignore")
 # CONFIGURATION
 # ============================================================
 
-GRID_CSV_PATH = "data/grid/chicago_grid.csv"
 MODEL_OUTPUT_DIR = "model/models"
 PLOT_OUTPUT_DIR = "output"
 TARGET = "mean_lst_f"
@@ -56,7 +57,7 @@ TARGET = "mean_lst_f"
 # STEP 1: SMARTER DATA PREPARATION
 # ============================================================
 
-def load_and_prepare_data_v2():
+def load_and_prepare_data_v2(city_slug="chicago"):
     """
     Load data with intelligent imputation instead of dropping rows.
     This recovers the ~100k cells we lost before.
@@ -65,7 +66,13 @@ def load_and_prepare_data_v2():
     print("  Step 1: Smart Data Preparation")
     print("=" * 60)
 
-    df = pd.read_csv(GRID_CSV_PATH)
+    grid_path = f"data/{city_slug}/grid/{city_slug}_grid.csv"
+    if not os.path.exists(grid_path):
+        print(f"  Error: Grid CSV not found at {grid_path}")
+        print(f"  Run the pipeline first: python run_city.py --city {city_slug} --step process_grid")
+        raise FileNotFoundError(grid_path)
+
+    df = pd.read_csv(grid_path)
     print(f"\n  Raw dataset: {len(df):,} rows")
 
     # Must have target
@@ -601,7 +608,7 @@ def improved_intervention_simulation(model, X_test, y_test, features):
 # STEP 6: COMPARISON VISUALIZATION
 # ============================================================
 
-def plot_comparison(model_old_metrics, model_new, X_test, y_test, features, df):
+def plot_comparison(model_old_metrics, model_new, X_test, y_test, features, df, city_slug="chicago"):
     """Side-by-side comparison of old vs new model."""
     os.makedirs(PLOT_OUTPUT_DIR, exist_ok=True)
 
@@ -681,13 +688,13 @@ def plot_comparison(model_old_metrics, model_new, X_test, y_test, features, df):
 
     fig.suptitle("Tuned Model — Comprehensive Evaluation", fontsize=16, fontweight="bold")
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_OUTPUT_DIR, "tuning_comparison.png"),
+    plt.savefig(os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_tuning_comparison.png"),
                 dpi=200, bbox_inches="tight")
-    print(f"  Saved: output/tuning_comparison.png")
+    print(f"  Saved: output/{city_slug}_tuning_comparison.png")
     plt.show()
 
 
-def plot_spatial_residuals(model_new, df, features):
+def plot_spatial_residuals(model_new, df, features, city_slug="chicago"):
     """Spatial residual map for the tuned model."""
     os.makedirs(PLOT_OUTPUT_DIR, exist_ok=True)
 
@@ -715,9 +722,9 @@ def plot_spatial_residuals(model_new, df, features):
         ax.set_ylabel("Latitude")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOT_OUTPUT_DIR, "tuning_residual_map.png"),
+    plt.savefig(os.path.join(PLOT_OUTPUT_DIR, f"{city_slug}_tuning_residual_map.png"),
                 dpi=150, bbox_inches="tight")
-    print(f"  Saved: output/tuning_residual_map.png")
+    print(f"  Saved: output/{city_slug}_tuning_residual_map.png")
     plt.show()
 
 
@@ -725,16 +732,17 @@ def plot_spatial_residuals(model_new, df, features):
 # SAVE
 # ============================================================
 
-def save_tuned_model(model, features, metrics, feature_results, intervention_results, best_params):
+def save_tuned_model(model, features, metrics, feature_results, intervention_results, best_params, city_slug="chicago"):
     os.makedirs(MODEL_OUTPUT_DIR, exist_ok=True)
 
-    model_path = os.path.join(MODEL_OUTPUT_DIR, "chicago_heat_model_tuned.pkl")
+    model_path = os.path.join(MODEL_OUTPUT_DIR, f"{city_slug}_heat_model_tuned.pkl")
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
     print(f"  Saved model: {model_path}")
 
     metadata = {
         "model_type": "lightgbm_tuned",
+        "city": city_slug,
         "features": features,
         "target": TARGET,
         "metrics": metrics,
@@ -748,7 +756,7 @@ def save_tuned_model(model, features, metrics, feature_results, intervention_res
         "dataset_size": int(metrics.get("dataset_size", 0)),
     }
 
-    meta_path = os.path.join(MODEL_OUTPUT_DIR, "chicago_tuned_metadata.json")
+    meta_path = os.path.join(MODEL_OUTPUT_DIR, f"{city_slug}_tuned_metadata.json")
     with open(meta_path, "w") as f:
         json.dump(metadata, f, indent=2, default=str)
     print(f"  Saved metadata: {meta_path}")
@@ -759,13 +767,20 @@ def save_tuned_model(model, features, metrics, feature_results, intervention_res
 # ============================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="HeatSense — Model Tuning & Optimization")
+    parser.add_argument("--city", type=str, default="chicago",
+                        help="City slug (e.g. chicago, dallas, phoenix)")
+    args = parser.parse_args()
+
+    city_slug = args.city.lower().replace(" ", "_")
+
     print()
     print("=" * 60)
-    print("  HeatSense — Model Tuning & Optimization")
+    print(f"  HeatSense — Model Tuning & Optimization ({city_slug})")
     print("=" * 60)
 
     # Step 1: Better data prep
-    df, all_features = load_and_prepare_data_v2()
+    df, all_features = load_and_prepare_data_v2(city_slug)
 
     # Step 2: Feature selection
     feature_results, best_feature_set_name = test_feature_subsets(df, all_features)
@@ -789,21 +804,21 @@ def main():
     print("\n" + "=" * 60)
     print("  Step 6: Generating Visualizations")
     print("=" * 60)
-    plot_comparison(None, final_model, X_test, y_test, best_features, df)
-    plot_spatial_residuals(final_model, df, best_features)
+    plot_comparison(None, final_model, X_test, y_test, best_features, df, city_slug)
+    plot_spatial_residuals(final_model, df, best_features, city_slug)
 
     # Save
     print("\n" + "=" * 60)
     print("  Saving Tuned Model")
     print("=" * 60)
     save_tuned_model(final_model, best_features, metrics,
-                      feature_results, intervention_results, best_params)
+                      feature_results, intervention_results, best_params, city_slug)
 
     # Summary
     print("\n" + "=" * 60)
-    print("  TUNING COMPLETE")
+    print(f"  TUNING COMPLETE — {city_slug}")
     print("=" * 60)
-    print(f"\n  Dataset: {len(df):,} cells (vs 45,877 before imputation)")
+    print(f"\n  Dataset: {len(df):,} cells")
     print(f"  Features: {len(best_features)} ({best_feature_set_name})")
     print(f"  Test MAE: {metrics['test']['mae']:.3f}°F")
     print(f"  Test R²:  {metrics['test']['r2']:.4f}")
@@ -814,11 +829,10 @@ def main():
     for name, result in intervention_results.items():
         print(f"    {name}: {result['avg_cooling_f']:+.1f}°F cooling")
     print(f"\n  Files:")
-    print(f"  - model/models/chicago_heat_model_tuned.pkl")
-    print(f"  - model/models/chicago_tuned_metadata.json")
-    print(f"  - output/tuning_comparison.png")
-    print(f"  - output/tuning_residual_map.png")
-    print(f"\n  Next: Build the web application!")
+    print(f"  - model/models/{city_slug}_heat_model_tuned.pkl")
+    print(f"  - model/models/{city_slug}_tuned_metadata.json")
+    print(f"  - output/{city_slug}_tuning_comparison.png")
+    print(f"  - output/{city_slug}_tuning_residual_map.png")
     print("=" * 60)
 
 
