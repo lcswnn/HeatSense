@@ -1,0 +1,126 @@
+{
+  "city": "dallas",
+  "model_type": "lightgbm",
+  "features": [
+    "ndvi",
+    "impervious_pct",
+    "lat",
+    "lon",
+    "building_count",
+    "building_density",
+    "avg_building_height_m",
+    "road_density_km",
+    "distance_to_park_m",
+    "distance_to_water_m",
+    "park_area_pct"
+  ],
+  "target": "mean_lst_f",
+  "metrics": {
+    "train": {
+      "mae": 0.194,
+      "rmse": 0.298,
+      "r2": 0.9933,
+      "mape": 0.17,
+      "n_samples": 3670
+    },
+    "validation": {
+      "mae": 1.617,
+      "rmse": 2.171,
+      "r2": 0.691,
+      "mape": 1.41,
+      "n_samples": 784
+    },
+    "test": {
+      "mae": 1.488,
+      "rmse": 1.937,
+      "r2": 0.6748,
+      "mape": 1.28,
+      "n_samples": 786
+    },
+    "cv_mae": 1.618,
+    "cv_std": 0.031,
+    "feature_importance": {
+      "lon": 11.62,
+      "building_density": 11.39,
+      "distance_to_water_m": 11.2,
+      "road_density_km": 11.19,
+      "lat": 11.18,
+      "ndvi": 10.86,
+      "distance_to_park_m": 10.26,
+      "impervious_pct": 8.59,
+      "avg_building_height_m": 7.43,
+      "building_count": 4.02,
+      "park_area_pct": 2.26
+    },
+    "permutation_importance": {
+      "ndvi": {
+        "mean": 0.3066,
+        "std": 0.0189
+      },
+      "avg_building_height_m": {
+        "mean": 0.1752,
+        "std": 0.0149
+      },
+      "lon": {
+        "mean": 0.1344,
+        "std": 0.0117
+      },
+      "lat": {
+        "mean": 0.1185,
+        "std": 0.0095
+      },
+      "distance_to_water_m": {
+        "mean": 0.074,
+        "std": 0.0076
+      },
+      "impervious_pct": {
+        "mean": 0.0534,
+        "std": 0.0091
+      },
+      "distance_to_park_m": {
+        "mean": 0.042,
+        "std": 0.0065
+      },
+      "building_density": {
+        "mean": 0.0324,
+        "std": 0.0072
+      },
+      "road_density_km": {
+        "mean": 0.0214,
+        "std": 0.0073
+      },
+      "park_area_pct": {
+        "mean": 0.0132,
+        "std": 0.0037
+      },
+      "building_count": {
+        "mean": 0.009,
+        "std": 0.0029
+      }
+    }
+  },
+  "intervention_simulations": {
+    "Light tree planting": {
+      "ndvi_increase": 0.15,
+      "description": "scattered street trees",
+      "avg_temp_reduction_f": 2.0,
+      "new_avg_temp_f": 119.97
+    },
+    "Moderate greening": {
+      "ndvi_increase": 0.3,
+      "description": "park-like coverage",
+      "avg_temp_reduction_f": 4.46,
+      "new_avg_temp_f": 117.51
+    },
+    "Heavy reforestation": {
+      "ndvi_increase": 0.45,
+      "description": "urban forest canopy",
+      "avg_temp_reduction_f": 8.23,
+      "new_avg_temp_f": 113.74
+    }
+  },
+  "trained_at": "2026-03-08T19:07:29.440555",
+  "grid_csv": "data/dallas/grid/dallas_grid.csv",
+  "n_features": 11,
+  "description": "Gradient boosting model predicting land surface temperature from urban characteristics. Trained on Landsat 8/9 thermal data for dallas summers (2022-2025)."
+}
